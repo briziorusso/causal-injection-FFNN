@@ -83,12 +83,12 @@ class CASTLE(object):
         })
         
         
-        self.weights.update({
-            'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden], seed = 2))
-        })
-        self.biases.update({
-            'b_h2': tf.Variable(tf.random_normal([self.n_hidden], seed = 2))
-        })
+#         self.weights.update({
+#             'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden], seed = 2))
+#         })
+#         self.biases.update({
+#             'b_h2': tf.Variable(tf.random_normal([self.n_hidden], seed = 2))
+#         })
         
         self.hidden_h0 = {}
         self.hidden_h1 = {}
@@ -122,7 +122,7 @@ class CASTLE(object):
         
         ## Binary crossentropy for classification
         bce = tf.keras.losses.BinaryCrossentropy()
-        self.supervised_loss = bce(self.out_layer['nn_0'], self.y)
+        self.supervised_loss = bce(self.y, self.out_layer['nn_0'])
         
         ## supervised loss
 #         self.supervised_loss = tf.reduce_mean(tf.reduce_sum(tf.square(self.out_layer['nn_0'] - self.y),axis=1),axis=0)
@@ -177,13 +177,13 @@ class CASTLE(object):
         self.mse_loss_subset = tf.cast(self.num_inputs, tf.float32) / tf.cast(tf.reduce_sum(self.sample), tf.float32)* tf.reduce_sum(tf.square(subset_R))   
         
         ## R_DAG loss = L_W + beta*V_W + R_W
-        self.regularization_loss_subset =  self.Lambda *(self.mse_loss_subset +  self.reg_beta * L1_loss +  
-#         0.5 * self.rho * self.h * self.h + 
-#         self.alpha * 
-                                                         self.h)
+        self.regularization_loss_subset =  self.Lambda *(self.mse_loss_subset +  
+                                                         self.reg_beta * L1_loss +  
+                                                         0.5 * self.rho * self.h * self.h + self.alpha * self.h
+                                                        )
             
         #Add in supervised loss
-        self.regularization_loss_subset +=  self.rho* self.supervised_loss
+        self.regularization_loss_subset +=  self.rho * self.supervised_loss
         
         self.loss_op_dag = self.optimizer_subset.minimize(self.regularization_loss_subset)
 
@@ -227,7 +227,7 @@ class CASTLE(object):
                   ", Loss= " + "{:.4f}".format(loss) +
 #                   " SLoss: " + "{:.4f}".format(s_loss),
 #                   " l_value:", l_value, 
-                  " r_value:", h_value ) 
+                  " h_value:", h_value ) 
 
                 
             for step1 in range(1, (X.shape[0] // self.batch_size) + 1):
