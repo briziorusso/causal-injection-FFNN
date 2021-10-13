@@ -5,9 +5,82 @@ import random
 import pandas as pd
 import tensorflow.compat.v1 as tf
 import pickle
+import argparse
 
-def random_dag(nodes, edges):
+
+def random_stability(seed_value=0, deterministic=True, verbose=False):
+    '''
+        seed_value : int A random seed
+        deterministic : negatively effect performance making (parallel) operations deterministic
+    '''
+    if verbose:
+        print('Random seed {} set for:'.format(seed_value))
+    try:
+        import os
+        os.environ['PYTHONHASHSEED'] = str(seed_value)
+        if verbose:
+            print(' - PYTHONHASHSEED (env)')
+    except:
+        pass
+    try:
+        import random
+        random.seed(seed_value)
+        if verbose:
+            print(' - random')
+    except:
+        pass
+    try:
+        import numpy as np
+        np.random.seed(seed_value)
+        if verbose:
+            print(' - NumPy')
+    except:
+        pass
+    try:
+        import tensorflow as tf
+        try:
+            tf.set_random_seed(seed_value)
+        except:
+            tf.random.set_seed(seed_value)
+        if verbose:
+            print(' - TensorFlow')
+        from keras import backend as K
+        if deterministic:
+            session_conf = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+        else:
+            session_conf = tf.ConfigProto()
+        session_conf.gpu_options.allow_growth = True
+        sess = tf.Session(graph=tf.get_default_graph(), config=session_conf)
+        K.set_session(sess)
+        if verbose:
+            print(' - Keras')
+        if deterministic:
+            if verbose:
+                print('   -> deterministic')
+    except:
+        pass
+
+    try:
+        import torch
+        torch.manual_seed(seed_value)
+        torch.cuda.manual_seed_all(seed_value)
+        if verbose:
+            print(' - PyTorch')
+        if deterministic:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            if verbose:
+                print('   -> deterministic')
+    except:
+        pass
+
+
+## gen_random_dag() and  gen_data_nonlinear() are from https://github.com/vanderschaarlab/mlforhealthlabpub/blob/main/alg/castle/CASTLE.py
+def gen_random_dag(nodes, edges, seed=0):
     """Generate a random Directed Acyclic Graph (DAG) with a given number of nodes and edges."""
+
+    random_stability(seed)
+
     G = nx.DiGraph()
     for i in range(nodes):
         G.add_node(i)
@@ -27,7 +100,9 @@ def random_dag(nodes, edges):
 
 # This function generates data according to a DAG provided in list_vertex and list_edges with mean and variance as input
 # It will apply a perturbation at each node provided in perturb.
-def gen_data_nonlinear(G, mean = 0, var = 1, SIZE = 10000, perturb = [], sigmoid = True):
+def gen_data_nonlinear(G, mean = 0, var = 1, SIZE = 10000, perturb = [], sigmoid = True, seed=0):
+    random_stability(seed)
+
     list_edges = G.edges()
     list_vertex = G.nodes()
 
@@ -52,64 +127,6 @@ def gen_data_nonlinear(G, mean = 0, var = 1, SIZE = 10000, perturb = [], sigmoid
                     g[edge[1]] +=np.square(g[edge[0]])
     g = np.swapaxes(g,0,1)
     return pd.DataFrame(g, columns = list(map(str, list_vertex)))
-
-
-def random_stability(seed_value=1, deterministic=True):
-    '''
-        seed_value : int A random seed
-        deterministic : negatively effect performance making (parallel) operations deterministic
-    '''
-    print('Random seed {} set for:'.format(seed_value))
-    try:
-        import os
-        os.environ['PYTHONHASHSEED'] = str(seed_value)
-        print(' - PYTHONHASHSEED (env)')
-    except:
-        pass
-    try:
-        import random
-        random.seed(seed_value)
-        print(' - random')
-    except:
-        pass
-    try:
-        import numpy as np
-        np.random.seed(seed_value)
-        print(' - NumPy')
-    except:
-        pass
-    try:
-        import tensorflow as tf
-        try:
-            tf.set_random_seed(seed_value)
-        except:
-            tf.random.set_seed(seed_value)
-        print(' - TensorFlow')
-        from keras import backend as K
-        if deterministic:
-            session_conf = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
-        else:
-            session_conf = tf.ConfigProto()
-        session_conf.gpu_options.allow_growth = True
-        sess = tf.Session(graph=tf.get_default_graph(), config=session_conf)
-        K.set_session(sess)
-        print(' - Keras')
-        if deterministic:
-            print('   -> deterministic')
-    except:
-        pass
-
-    try:
-        import torch
-        torch.manual_seed(seed_value)
-        torch.cuda.manual_seed_all(seed_value)
-        print(' - PyTorch')
-        if deterministic:
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-            print('   -> deterministic')
-    except:
-        pass
 
 
 def DAG_retrieve(mat, threshold):
@@ -182,8 +199,13 @@ def heat_mat(mat):
     return display(x) 
 
 
-def plot_DAG(mat, ori_dag, graphic_type, debug=False):
-    G1 = nx.from_numpy_matrix(mat, create_using=nx.DiGraph, parallel_edges=False)
+def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None):
+    if type(mat) is np.ndarray:
+        G1 = nx.from_numpy_matrix(mat, create_using=nx.DiGraph, parallel_edges=False)
+    elif isinstance(mat, nx.classes.digraph.DiGraph):
+        G1 = mat
+    else:
+        pass
 
     print("Total Number of Edges in G:", G1.number_of_edges())
     print("Max in degree:", max([d for n, d in G1.in_degree()]))
@@ -193,8 +215,12 @@ def plot_DAG(mat, ori_dag, graphic_type, debug=False):
         from pyvis import network as net
         # from IPython.core.display import display, HTML
         g=net.Network(notebook=True, width='100%', height='600px', directed=True)
-        mapping = dict(zip(G1, ["Y"] + ['X{}'.format(str(i)) for i in range(1,len(G1.nodes()))]))
-        print(mapping)
+        if names is None:
+            mapping = dict(zip(G1, ["Y"] + ['X{}'.format(str(i)) for i in range(1,len(G1.nodes()))]))
+        else:
+            mapping = dict(zip(G1, [i for i in names]))
+        if debug:
+            print(mapping)
         G1 = nx.relabel_nodes(G1, mapping)
         g.from_nx(G1)
         for n in g.nodes:
@@ -244,10 +270,10 @@ def plot_DAG(mat, ori_dag, graphic_type, debug=False):
             
             
         nx.draw(G2,pos,node_size=400, node_color=color_map, edge_color=e_color_map)
-        return nx.draw_networkx_labels(G2,pos,labels,font_size=14, font_color="white")
+        nx.draw_networkx_labels(G2,pos,labels,font_size=14, font_color="white")
         
         print("\nBlack Arrow = Edge in the original DAG,\nRed Arrow = Missing Edge, Blue Arrow = Additional Edge ")
-  
+        return G2
 
 
 
