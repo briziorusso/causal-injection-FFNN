@@ -135,7 +135,7 @@ if __name__ == '__main__':
     y_test = df_test[:,0]
     X_DAG = df
     
-    kf = KFold(n_splits = args.n_folds, random_state = 1)
+    kf = KFold(n_splits = args.n_folds, random_state = 1, shuffle=True)
 
     fold = 0
     REG_castle = []

@@ -1,3 +1,6 @@
+## Much of the code is taken from https://github.com/vanderschaarlab/mlforhealthlabpub/blob/main/alg/castle/CASTLE.py 
+## This has been adapted to perform causal injection into a joint network beyond the regularization performed within CASTLE
+
 import numpy as np
 np.set_printoptions(suppress=True)
 import random
@@ -16,7 +19,7 @@ from utils import random_stability, DAG_retrieve
 # this allows wider numpy viewing for matrices
 np.set_printoptions(linewidth=np.inf)
 
-class CASTLE(object):
+class CASTLE(object): ## change name...
     def __init__(
         self,
         num_train,
@@ -37,10 +40,12 @@ class CASTLE(object):
         seed = 0,
         tune=False,
         adj_mat = None,
-        hypertrain = False
+        hypertrain = False,
+        verbose = False
     ):
         random_stability(seed)
 
+        self.verbose = verbose
         self.count = 0
         self.max_steps = max_steps
         self.saves = 50
@@ -145,7 +150,8 @@ class CASTLE(object):
             
             if tune and adj_mat is not None:
                 if i==0:
-                    print("Masking non causal dependencies")
+                    if verbose:
+                        print("Masking non causal dependencies")
                 if tf.is_tensor(adj_mat):
                     indices = tf.transpose(tf.tile(tf.where(tf.equal(tf.gather(adj_mat, i, axis=1),0)),[1,self.n_hidden]))
                 else:
@@ -319,7 +325,10 @@ class CASTLE(object):
         #     self.supervised_loss + self.regularization_loss  # this is set to 0
         # )
         #############################################
-
+        # config=tf.ConfigProto(     
+        #     intra_op_parallelism_threads=14,     
+        #     inter_op_parallelism_threads=14)
+        # self.sess = tf.Session(config=config)
         self.sess = tf.Session()
         if not tune:
             self.sess.run(tf.global_variables_initializer())
@@ -329,7 +338,8 @@ class CASTLE(object):
 
     def __del__(self):
         tf.reset_default_graph()
-        print("Destructor Called... Cleaning up")
+        if self.verbose:
+            print("Destructor Called... Cleaning up")
         self.sess.close()
         del self.sess
 
@@ -344,7 +354,8 @@ class CASTLE(object):
 
         if os.path.exists(file_path) and not overwrite and not tune and not tuned:
             self.saver.restore(self.sess, self.tmp)
-            print("Model Loaded from ", self.tmp)
+            if verbose:
+                print("Model Loaded from ", self.tmp)
 
         elif os.path.exists(file_path) and tuned:
             # tf.reset_default_graph()
@@ -354,19 +365,22 @@ class CASTLE(object):
 
             if os.path.exists(file_path1):       
                 self.saver.restore(self.sess, self.tmp)
-                print("Model Loaded from ", self.tmp)
+                if verbose:
+                    print("Model Loaded from ", self.tmp)
             else:
                 print("No tuned model found. Set tuned==False and tune==True")
 
         elif os.path.exists(file_path) and tune:
             self.saver.restore(self.sess, self.tmp)
-            print("Model Loaded from ", self.tmp)
+            if verbose:
+                print("Model Loaded from ", self.tmp)
 
             self.tmp = self.tmp + "_tuned"
 
-            print("Begin Tuning - Apply Mask from DAG")
+            if verbose:
+                print("Begin Tuning - Apply Mask from DAG")
             # W = tf.convert_to_tensor(adj_mat, dtype=tf.float32)
-            W = maxed_adj
+            # W = maxed_adj
             
             from random import sample
             random_stability(seed)
@@ -446,7 +460,8 @@ class CASTLE(object):
                         print("Error caught in calculation")
 
                 if self.count > self.patience:
-                    print("Early stopping")
+                    if verbose:
+                        print("Early stopping")
                     break
 
             self.saver.restore(self.sess, self.tmp)
@@ -532,23 +547,24 @@ class CASTLE(object):
                         print("Error caught in calculation")
 
                 if self.count > self.patience:
-                    print("Early stopping")
+                    if verbose:
+                        print("Early stopping")
                     break
 
             self.saver.restore(self.sess, self.tmp)
-            W_est = self.sess.run(
-                self.W,
-                feed_dict={
-                    self.X: X,
-                    self.y: y,
-                    self.keep_prob: 1,
-                    self.rho: rho_i,
-                    self.alpha: alpha_i,
-                    self.is_train: True,
-                    self.noise: 0
-                }
-            )
-            W_est[np.abs(W_est) < self.w_threshold] = 0
+            # W_est = self.sess.run(
+            #     self.W,
+            #     feed_dict={
+            #         self.X: X,
+            #         self.y: y,
+            #         self.keep_prob: 1,
+            #         self.rho: rho_i,
+            #         self.alpha: alpha_i,
+            #         self.is_train: True,
+            #         self.noise: 0
+            #     }
+            # )
+            # W_est[np.abs(W_est) < self.w_threshold] = 0
 
     def val_loss(self, X, y):
         if len(y.shape) < 2:
@@ -614,7 +630,7 @@ class CASTLE(object):
                 self.noise: 0
             }
         )
-        return np.round_(W_est, decimals=3)
+        return W_est #np.round_(W_est, decimals=3)
 
     def get_h(self, X):
         return self.sess.run(self.h, feed_dict={self.X: X, self.keep_prob: 1, self.is_train: False, self.noise: 0})
