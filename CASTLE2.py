@@ -347,6 +347,88 @@ class CASTLE(object): ## change name...
         noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
         return input_layer + noise
 
+    def __fit__(self, X, y, num_nodes, X_val, y_val, seed = 0, verbose=True):
+        from random import sample
+        random_stability(seed)
+
+        rho_i = np.array([[1.0]])
+        alpha_i = np.array([[1.0]])
+
+        best = 1e9
+        best_value = 1e9
+        for step in range(1, self.max_steps):
+            h_value, loss = self.sess.run(
+                [self.h, self.supervised_loss],
+                feed_dict={
+                    # self.W: W,
+                    self.X: X,
+                    self.y: y,
+                    self.keep_prob: 1,
+                    self.rho: rho_i,
+                    self.alpha: alpha_i,
+                    self.is_train: True,
+                    self.noise: 0
+                }
+            )
+            if verbose:
+                print(
+                    "Step " + str(step) + ", Loss= " + "{:.4f}".format(loss) +
+                    " h_value:",
+                    h_value
+                )
+
+            for step1 in range(1, (X.shape[0] // self.batch_size) + 1):
+
+                idxs = random.sample(range(X.shape[0]), self.batch_size)
+                batch_x = X[idxs]
+                batch_y = np.expand_dims(batch_x[:, 0], -1)
+                one_hot_sample = [0] * self.num_inputs
+                subset_ = sample(range(self.num_inputs), num_nodes)
+                for j in subset_:
+                    one_hot_sample[j] = 1
+                self.sess.run(
+                    self.loss_op_dag,
+                    feed_dict={
+                        # self.W: W,
+                        self.X: batch_x,
+                        self.y: batch_y,
+                        self.sample: one_hot_sample,
+                        self.keep_prob: 1,
+                        self.rho: rho_i,
+                        self.alpha: alpha_i,
+                        self.Lambda: self.reg_lambda,
+                        self.is_train: True,
+                        self.noise: 0
+                    }
+                )
+
+            val_loss = self.val_loss(X_val, y_val)
+            if verbose:
+                print("Val Loss= " + "{:.4f}".format(val_loss))
+
+            if val_loss < best_value:
+                best_value = val_loss
+
+            if step >= self.saves:
+                try:
+                    if val_loss < best:
+                        best = val_loss
+                        self.saver.save(self.sess, self.tmp)
+                        if verbose:
+                            print("Saving model")
+                        self.count = 0
+                    else:
+                        self.count += 1
+                except:
+                    print("Error caught in calculation")
+
+            if self.count > self.patience:
+                if verbose:
+                    print("Early stopping")
+                break
+
+        self.saver.restore(self.sess, self.tmp)
+
     def fit(self, X, y, num_nodes, X_val, y_val, 
             overwrite=False, tune=False, maxed_adj=None, tuned=False, seed = 0, verbose=True):            
 
@@ -379,179 +461,12 @@ class CASTLE(object): ## change name...
 
             if verbose:
                 print("Begin Tuning - Apply Mask from DAG")
-            # W = tf.convert_to_tensor(adj_mat, dtype=tf.float32)
-            # W = maxed_adj
-            
-            from random import sample
-            random_stability(seed)
 
-            rho_i = np.array([[1.0]])
-            alpha_i = np.array([[1.0]])
-
-            best = 1e9
-            best_value = 1e9
-            for step in range(1, self.max_steps):
-                h_value, loss = self.sess.run(
-                    [self.h, self.supervised_loss],
-                    feed_dict={
-                        # self.W: W,
-                        self.X: X,
-                        self.y: y,
-                        self.keep_prob: 1,
-                        self.rho: rho_i,
-                        self.alpha: alpha_i,
-                        self.is_train: True,
-                        self.noise: 0
-                    }
-                )
-                if verbose:
-                    print(
-                        "Step " + str(step) + ", Loss= " + "{:.4f}".format(loss) +
-                        #                   " SLoss: " + "{:.4f}".format(s_loss),
-                        #                   " l_value:", l_value,
-                        " h_value:",
-                        h_value
-                    )
-
-                # tf.debugging.enable_check_numerics()
-                for step1 in range(1, (X.shape[0] // self.batch_size) + 1):
-
-                    idxs = random.sample(range(X.shape[0]), self.batch_size)
-                    batch_x = X[idxs]
-                    batch_y = np.expand_dims(batch_x[:, 0], -1)
-                    one_hot_sample = [0] * self.num_inputs
-                    subset_ = sample(range(self.num_inputs), num_nodes)
-                    for j in subset_:
-                        one_hot_sample[j] = 1
-                    self.sess.run(
-                        self.loss_op_dag,
-                        feed_dict={
-                            # self.W: W,
-                            self.X: batch_x,
-                            self.y: batch_y,
-                            self.sample: one_hot_sample,
-                            self.keep_prob: 1,
-                            self.rho: rho_i,
-                            self.alpha: alpha_i,
-                            self.Lambda: self.reg_lambda,
-                            self.is_train: True,
-                            self.noise: 0
-                        }
-                    )
-
-                val_loss = self.val_loss(X_val, y_val)
-                if verbose:
-                    print("Val Loss= " + "{:.4f}".format(val_loss))
-
-                if val_loss < best_value:
-                    best_value = val_loss
-
-                if step >= self.saves:
-                    try:
-                        if val_loss < best:
-                            best = val_loss
-                            self.saver.save(self.sess, self.tmp)
-                            if verbose:
-                                print("Saving model")
-                            self.count = 0
-                        else:
-                            self.count += 1
-                    except:
-                        print("Error caught in calculation")
-
-                if self.count > self.patience:
-                    if verbose:
-                        print("Early stopping")
-                    break
-
-            self.saver.restore(self.sess, self.tmp)
+            self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=True)
 
         else:
+            self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=True)
 
-            from random import sample
-            random_stability(seed)
-
-            rho_i = np.array([[1.0]])
-            alpha_i = np.array([[1.0]])
-
-            best = 1e9
-            best_value = 1e9
-            for step in range(1, self.max_steps):
-                h_value, loss = self.sess.run(
-                    [self.h, self.supervised_loss],
-                    feed_dict={
-                        # self.W: W,
-                        self.X: X,
-                        self.y: y,
-                        self.keep_prob: 1,
-                        self.rho: rho_i,
-                        self.alpha: alpha_i,
-                        self.is_train: True,
-                        self.noise: 0
-                    }
-                )
-
-                #             l_value  = self.sess.run([ self.mse_loss_subset], feed_dict={self.X: X, self.y: y, self.keep_prob : 1, self.rho:rho_i, self.alpha:alpha_i, self.is_train : True, self.noise:0})
-
-                if verbose:
-                    print(
-                        "Step " + str(step) + ", Loss= " + "{:.4f}".format(loss) +
-                        #                   " SLoss: " + "{:.4f}".format(s_loss),
-                        #                   " l_value:", l_value,
-                        " h_value:",
-                        h_value
-                    )
-
-                for step1 in range(1, (X.shape[0] // self.batch_size) + 1):
-
-                    idxs = random.sample(range(X.shape[0]), self.batch_size)
-                    batch_x = X[idxs]
-                    batch_y = np.expand_dims(batch_x[:, 0], -1)
-                    one_hot_sample = [0] * self.num_inputs
-                    subset_ = sample(range(self.num_inputs), num_nodes)
-                    for j in subset_:
-                        one_hot_sample[j] = 1
-                    self.sess.run(
-                        self.loss_op_dag,
-                        feed_dict={
-                            self.X: batch_x,
-                            self.y: batch_y,
-                            self.sample: one_hot_sample,
-                            self.keep_prob: 1,
-                            self.rho: rho_i,
-                            self.alpha: alpha_i,
-                            self.Lambda: self.reg_lambda,
-                            self.is_train: True,
-                            self.noise: 0
-                        }
-                    )
-
-                val_loss = self.val_loss(X_val, y_val)
-                if verbose:
-                    print("Val Loss= " + "{:.4f}".format(val_loss))
-
-                if val_loss < best_value:
-                    best_value = val_loss
-
-                if step >= self.saves:
-                    try:
-                        if val_loss < best:
-                            best = val_loss
-                            self.saver.save(self.sess, self.tmp)
-                            if verbose:
-                                print("Saving model")
-                            self.count = 0
-                        else:
-                            self.count += 1
-                    except:
-                        print("Error caught in calculation")
-
-                if self.count > self.patience:
-                    if verbose:
-                        print("Early stopping")
-                    break
-
-            self.saver.restore(self.sess, self.tmp)
             # W_est = self.sess.run(
             #     self.W,
             #     feed_dict={
