@@ -6,7 +6,30 @@ import pandas as pd
 import tensorflow.compat.v1 as tf
 import pickle
 import argparse
+import os
+from sys import exit
+import seaborn as sns
 
+def load_args():
+    """ Load args and run some basic checks.
+        Args loaded from:
+        - Huggingface transformers training args (defaults for using their model)
+        - Manual args from .yaml file
+    """
+    import sys, yaml 
+    assert sys.argv[1] in ['train', 'test', 'chen']
+    # Load args from file
+    with open(f'config/{sys.argv[1]}.yaml', 'r') as f:
+        args = argparse.Namespace(**yaml.load(f, Loader=yaml.FullLoader))
+        for arg in args.__dict__:
+            try:
+                setattr(args, arg, getattr(args, arg))
+            except AttributeError:
+                pass
+            
+            # yaml.dump(args.__dict__, f)
+
+    return args
 
 def random_stability(seed_value=0, deterministic=True, verbose=False):
     '''
@@ -100,18 +123,18 @@ def gen_random_dag(nodes, edges, seed=0):
 
 # This function generates data according to a DAG provided in list_vertex and list_edges with mean and variance as input
 # It will apply a perturbation at each node provided in perturb.
-def gen_data_nonlinear(G, mean = 0, var = 1, SIZE = 10000, perturb = [], sigmoid = True, seed=0):
+def gen_data_nonlinear(G, mean = 0, var = 1, SIZE = 10000, perturb = [], sigmoid = True, percent_noise=0, seed=0):
     random_stability(seed)
 
     list_edges = G.edges()
-    list_vertex = G.nodes()
+    list_nodes = G.nodes()
 
     order = []
     for ts in nx.algorithms.dag.topological_sort(G):
         order.append(ts)
 
     g = []
-    for v in list_vertex:
+    for v in list_nodes:
         if v in perturb:
             g.append(np.random.normal(mean,var,SIZE))
             print("perturbing ", v, "with mean var = ", mean, var)
@@ -125,9 +148,132 @@ def gen_data_nonlinear(G, mean = 0, var = 1, SIZE = 10000, perturb = [], sigmoid
                     g[edge[1]] += 1/1+np.exp(-g[edge[0]])
                 else:   
                     g[edge[1]] +=np.square(g[edge[0]])
-    g = np.swapaxes(g,0,1)
-    return pd.DataFrame(g, columns = list(map(str, list_vertex)))
+    
+    ### Add random noise variables completely disjunt from the other vars
+    if percent_noise>0:
+        len_noisy = int(len(list_nodes)*percent_noise)
+        for n in range(len_noisy):
+            g.append(np.random.normal(mean,var,SIZE))
 
+    g = np.swapaxes(g,0,1)
+    return pd.DataFrame(g, columns = list(map(str, list_nodes)))
+
+
+def swap_cols(df, a, b):
+    df = df.rename(columns = {a : 'temp'})
+    df = df.rename(columns = {b : a})
+    return df.rename(columns = {'temp' : b})
+def swap_nodes(G, a, b):
+    newG = nx.relabel_nodes(G, {a : 'temp'})
+    newG = nx.relabel_nodes(newG, {b : a})
+    return nx.relabel_nodes(newG, {'temp' : b})
+
+def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose = False, seed=0):
+    random_stability(seed)
+    if name == 'toy':
+        '''
+        Toy DAG
+        The node '0' is the target in the Toy DAG
+        '''
+        G = nx.DiGraph()
+        for i in range(10):
+            G.add_node(i)
+        G.add_edge(1,2)
+        G.add_edge(1,3)
+        G.add_edge(1,4)
+        G.add_edge(2,5)
+        G.add_edge(2,0)
+        G.add_edge(3,0)
+        G.add_edge(3,6)
+        G.add_edge(3,7)
+        G.add_edge(6,9)
+        G.add_edge(0,8)
+        G.add_edge(0,9)
+
+        if csv != None:
+            df = pd.read_csv(csv)
+            # df_test = df.iloc[-1000:]
+            # df = df.iloc[:dset_sz]
+        else: 
+            df = gen_data_nonlinear(G, SIZE = 100000, seed=seed)
+
+    elif name == 'random':
+        #Random DAG
+        num_edges = int(num_nodes*branchf)
+        G = gen_random_dag(num_nodes, num_edges, seed=seed)
+
+        noise = random.uniform(0.3, 1.0)
+
+        df = gen_data_nonlinear(G, SIZE = 100000, var = noise, seed=seed)
+        
+        for i in range(len(G.edges())):
+            if len(list(G.predecessors(i))) > 0:
+                df = swap_cols(df, str(0), str(i))
+                G = swap_nodes(G, 0, i)
+                break      
+
+        df = pd.DataFrame(df)
+        if verbose:
+            print("Edges = ", len(G.edges()), list(G.edges()))
+    
+    elif name == 'fico':
+        csv = './data/fico/WOE_Rud_data.csv'
+        csv_y = './data/fico/y_data.csv'
+        label = 'RiskPerformance'
+        df = pd.read_csv(csv)
+        y = pd.read_csv(os.path.join(csv_y))
+        y = pd.get_dummies(y[label])[['Bad']].to_numpy()
+        df.insert(loc=0, column=label, value=y)
+        G = None
+
+    elif name == 'adult':
+        from pmlb import fetch_data
+        label = 'Income_50k'
+
+        dataset = fetch_data(name)
+        cols = list(dataset.columns)
+        cols = [cols[-1]] + cols[:-1]
+        df = dataset[cols]
+        G = None
+
+    return G, df
+
+
+def load_adj_mat(DAG_inject, known_perc, num_nodes, verbose=False):
+
+    if DAG_inject == 'toy':
+    ##Partial inject experiment
+        loaded_adj = np.array((
+            [0.0,1.0,0.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0],
+            [1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
+            [1.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
+            [1.0,1.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0],
+            [1.0,1.0,1.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0],
+            [1.0,1.0,1.0,1.0,1.0,0.0,1.0,1.0,1.0,1.0],
+            [1.0,1.0,1.0,1.0,1.0,1.0,0.0,1.0,1.0,1.0],
+            [1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.0,1.0,1.0],
+            [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.0,1.0],
+            [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.0]
+            ))
+
+    elif DAG_inject == 'full':
+        loaded_adj = np.array((
+            [0.0,0.002,0.017,0.021,0.005,0.045,0.035,0.007,0.053,0.055],
+            [0.008,0.0,0.072,0.061,0.07,0.005,0.011,0.008,0.004,0.007],
+            [0.095,0.036,0.0,0.031,0.027,0.139,0.009,0.005,0.011,0.008],
+            [0.071,0.04,0.031,0.0,0.035,0.003,0.108,0.109,0.011,0.007],
+            [0.013,0.045,0.022,0.027,0.0,0.008,0.011,0.004,0.007,0.005],
+            [0.039,0.003,0.022,0.006,0.005,0.0,0.009,0.007,0.003,0.014],
+            [0.038,0.004,0.007,0.011,0.007,0.01,0.0,0.023,0.003,0.163],
+            [0.024,0.006,0.004,0.01,0.003,0.022,0.028,0.0,0.009,0.009],
+            [0.026,0.004,0.006,0.002,0.009,0.004,0.015,0.005,0.0,0.014],
+            [0.026,0.004,0.004,0.005,0.004,0.008,0.073,0.004,0.007,0.0]
+            ))
+
+    elif DAG_inject == 'fico_size':
+        loaded_adj = pd.read_csv("fico_adj_matrix.csv").to_numpy()
+
+    return loaded_adj
 
 def DAG_retrieve(mat, threshold):
     def max_over_diag(mat):
@@ -191,10 +337,12 @@ def DAG_retreive_np(mat, threshold):
     return zero_under_t(max_over_diag(mat), threshold)
 
 
-def heat_mat(mat):
-    import seaborn as sns
-    cm = sns.light_palette("#003E74", as_cmap=True)
+def heat_mat(mat, names=None, colour="#003E74"):
+    cm = sns.light_palette(colour, as_cmap=True)
     x=pd.DataFrame(mat).round(3)
+    if names is not None:
+        x.columns = names
+        x.index = names
     x=x.style.background_gradient(cmap=cm, low= np.min(mat.flatten()), high=np.max(mat.flatten())).format("{:.3}")
     return display(x) 
 
@@ -225,9 +373,10 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None):
         g.from_nx(G1)
         for n in g.nodes:
             n.update({'physics': False})
-
+#         from IPython.display import HTML
+#         HTML(g.write_html())  
         return g.show("a.html")
-        # display(HTML("a.html"))
+    
         
     elif graphic_type=="nx":
         pos=nx.planar_layout(G1)
@@ -246,27 +395,28 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None):
             color_map.append(color)
         
         G2 = G1.copy()
-        G = ori_dag
-            
-        for edge in G.edges():
-            if edge not in G1.edges():
-                if debug:
-                    print(edge)
-                G2.add_edge(edge[0],edge[1])
-        
-        if debug:
-            print(G.edges())
-            print(G1.edges())    
-            print(G2.edges())    
+        if ori_dag is not None:
+            G = ori_dag
 
-        for edge in G2.edges():
-            if edge in G.edges() and edge in G1.edges():
-                color = "black"
-            elif edge not in G.edges() and edge in G1.edges():    
-                color = "blue" #Added Edge
-            elif edge in G.edges() and edge not in G1.edges():    
-                color = "red" #Missing Edge
-            e_color_map.append(color)
+            for edge in G.edges():
+                if edge not in G1.edges():
+                    if debug:
+                        print(edge)
+                    G2.add_edge(edge[0],edge[1])
+
+            if debug:
+                print(G.edges())
+                print(G1.edges())    
+                print(G2.edges())    
+
+            for edge in G2.edges():
+                if edge in G.edges() and edge in G1.edges():
+                    color = "black"
+                elif edge not in G.edges() and edge in G1.edges():    
+                    color = "blue" #Added Edge
+                elif edge in G.edges() and edge not in G1.edges():    
+                    color = "red" #Missing Edge
+                e_color_map.append(color)
             
             
         nx.draw(G2,pos,node_size=400, node_color=color_map, edge_color=e_color_map)
