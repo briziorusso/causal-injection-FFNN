@@ -30,13 +30,13 @@ class CASTLE(object): ## change name...
         type_output='reg',
         w_threshold=0.3,
         n_hidden=32,
-        hidden_layers=2, #not used
+        hidden_layers=1, 
         ckpt_file='tmp.ckpt',
         standardize=True,
         reg_lambda=None,
         reg_beta=None,
         DAG_min=0.5,
-        max_steps = 200,
+        max_steps = 1000,
         seed = 0,
         tune=False,
         adj_mat = None,
@@ -49,7 +49,7 @@ class CASTLE(object): ## change name...
         self.count = 0
         self.max_steps = max_steps
         self.saves = 50
-        self.patience = 30
+        self.patience = 50
         self.metric = mean_squared_error  ## not used...
         self.w_threshold = w_threshold  # threshold for the acceptance of weights, below are set to 0
         self.DAG_min = DAG_min ## not used
@@ -80,6 +80,7 @@ class CASTLE(object): ## change name...
         self.num_inputs = num_inputs
         self.n_hidden = n_hidden
         self.hidden_layers = hidden_layers
+        self.bottleneck = int(self.n_hidden/3)
         self.num_outputs = num_outputs
         self.X = tf.placeholder("float", [None, self.num_inputs])
         self.y = tf.placeholder("float", [None, 1])
@@ -122,18 +123,27 @@ class CASTLE(object): ## change name...
         self.weights.update({'w_h1': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden]))})
         self.biases.update({'b_h1': tf.Variable(tf.random_normal([self.n_hidden]))})
 
-        #         self.weights.update({
-        #             'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden], seed = 2))
-        #         })
-        #         self.biases.update({
-        #             'b_h2': tf.Variable(tf.random_normal([self.n_hidden], seed = 2))
-        #         })
+        if self.hidden_layers>1:
+            self.weights.update({
+                'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.bottleneck]))
+            })
+            self.biases.update({
+                'b_h2': tf.Variable(tf.random_normal([self.bottleneck]))
+            })
+
+            self.weights.update({
+                'w_h3': tf.Variable(tf.random_normal([self.bottleneck, self.n_hidden]))
+            })
+            self.biases.update({
+                'b_h3': tf.Variable(tf.random_normal([self.n_hidden]))
+            })
 
         self.hidden_h0 = {}
         self.hidden_h1 = {}
         self.hidden_h2 = {}
-        self.layer_1 = {}
-        self.layer_1_dropout = {}
+        self.hidden_h3 = {}
+        # self.layer_1 = {}
+        # self.layer_1_dropout = {}
         self.out_layer = {}
 
         self.Out_0 = []
@@ -149,9 +159,8 @@ class CASTLE(object): ## change name...
         for i in range(self.num_inputs):
             
             if tune and adj_mat is not None:
-                if i==0:
-                    if verbose:
-                        print("Masking non causal dependencies")
+                if i==0 and verbose:
+                    print("Masking non causal dependencies")
                 if tf.is_tensor(adj_mat):
                     indices = tf.transpose(tf.tile(tf.where(tf.equal(tf.gather(adj_mat, i, axis=1),0)),[1,self.n_hidden]))
                 else:
@@ -176,18 +185,34 @@ class CASTLE(object): ## change name...
                 tf.add(tf.matmul(self.hidden_h0['nn_' + str(i)], self.weights['w_h1']), self.biases['b_h1'])
             )
             
-            #             self.hidden_h2['nn_'+str(i)] = self.activation(tf.add(tf.matmul(self.hidden_h1['nn_'+str(i)], self.weights['w_h2']), self.biases['b_h2']))
-            
-            if i == 0 and type_output != 'reg': # binary prediction for y @ df[,0] hence sigmoid activation to output probabilities
-                self.out_layer['nn_' + str(i)] = self.out_activation(
-                    tf.add(
+            if self.hidden_layers>1:
+                self.hidden_h2['nn_'+str(i)] = self.activation(
+                    tf.add(tf.matmul(self.hidden_h1['nn_'+str(i)], self.weights['w_h2']), self.biases['b_h2'])
+                    )
+                self.hidden_h3['nn_'+str(i)] = self.activation(
+                    tf.add(tf.matmul(self.hidden_h2['nn_'+str(i)], self.weights['w_h3']), self.biases['b_h3'])
+                    )
+                if i == 0 and type_output != 'reg': # binary prediction for y @ df[,0] hence sigmoid activation to output probabilities
+                    self.out_layer['nn_' + str(i)] = self.out_activation(
+                        tf.add(
+                            tf.matmul(self.hidden_h3['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)]
+                        )
+                    )
+                else:
+                    self.out_layer['nn_' + str(i)] = tf.add(
+                        tf.matmul(self.hidden_h3['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)]
+                    )
+            else:
+                if i == 0 and type_output != 'reg': # binary prediction for y @ df[,0] hence sigmoid activation to output probabilities
+                    self.out_layer['nn_' + str(i)] = self.out_activation(
+                        tf.add(
+                            tf.matmul(self.hidden_h1['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)]
+                        )
+                    )
+                else:
+                    self.out_layer['nn_' + str(i)] = tf.add(
                         tf.matmul(self.hidden_h1['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)]
                     )
-                )
-            else:
-                self.out_layer['nn_' + str(i)] = tf.add(
-                    tf.matmul(self.hidden_h1['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)]
-                )
             self.Out_0.append(self.out_layer['nn_' + str(i)])
 
         # Concatenate all the constructed features
@@ -285,50 +310,6 @@ class CASTLE(object): ## change name...
         beta1=0.9, beta2=0.999, epsilon=1e-4)
         self.loss_op_dag = self.optimizer_subset.minimize(self.regularization_loss_subset)
 
-        ###############################################
-        #### Extract gradients (not fully working) ####
-
-        # gradients, variables = zip(*self.optimizer_subset.compute_gradients(self.regularization_loss_subset))
-        
-        # def replace_none_with_zero(l):
-        #     return [0.0 if i==None else i for i in l]
-
-        # gradients = replace_none_with_zero(gradients)
-
-        # # gradients = tf.Print(gradients,[gradients],"Gradients")
-
-        # gradient_av = tf.math.reduce_mean( tf.concat([tf.reshape(g, [-1]) for g in gradients], axis=0))
-        # gradient_av = tf.print(gradient_av,
-        #     [gradient_av],
-        #     "Mean")
-        # gradient_max = tf.math.reduce_max( tf.concat([tf.reshape(g, [-1]) for g in [c for c in gradients if c is not None]], axis=0))
-        # gradient_max = tf.print(gradient_max,
-        #     [gradient_max],
-        #     "Max")
-        # gradient_min = tf.math.reduce_min( tf.concat([tf.reshape(g, [-1]) for g in [c for c in gradients if c is not None]], axis=0))
-        # gradient_min = tf.print(gradient_min,
-        #     [gradient_min],
-        #     "Min")
-        # gradient_stats = [gradient_min,gradient_av,gradient_max]
-        
-        # gradients, _ = tf.clip_by_global_norm(gradients, 1.0)
-        # # gradients, _ = tf.clip_by_value([c for c in gradients if c is not None], 1e-8, 1e1)
-
-        # self.loss_op_dag = self.optimizer_subset.apply_gradients(zip(gradients, variables))
-        ############################################
-
-        #############################################
-        ## initialise regularisation loss
-        # self.regularization_loss = 0
-
-        # self.loss_op_supervised = self.optimizer_subset.minimize(
-        #     self.supervised_loss + self.regularization_loss  # this is set to 0
-        # )
-        #############################################
-        # config=tf.ConfigProto(     
-        #     intra_op_parallelism_threads=14,     
-        #     inter_op_parallelism_threads=14)
-        # self.sess = tf.Session(config=config)
         self.sess = tf.Session()
         if not tune:
             self.sess.run(tf.global_variables_initializer())
@@ -340,8 +321,9 @@ class CASTLE(object): ## change name...
         tf.reset_default_graph()
         if self.verbose:
             print("Destructor Called... Cleaning up")
-        self.sess.close()
-        del self.sess
+        if 'sess' in self.__dict__.keys():
+            self.sess.close()
+            del self.sess
 
     def gaussian_noise_layer(self, input_layer, std):
         noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
@@ -462,24 +444,10 @@ class CASTLE(object): ## change name...
             if verbose:
                 print("Begin Tuning - Apply Mask from DAG")
 
-            self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=True)
+            self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=verbose)
 
         else:
-            self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=True)
-
-            # W_est = self.sess.run(
-            #     self.W,
-            #     feed_dict={
-            #         self.X: X,
-            #         self.y: y,
-            #         self.keep_prob: 1,
-            #         self.rho: rho_i,
-            #         self.alpha: alpha_i,
-            #         self.is_train: True,
-            #         self.noise: 0
-            #     }
-            # )
-            # W_est[np.abs(W_est) < self.w_threshold] = 0
+            self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=verbose)
 
     def val_loss(self, X, y):
         if len(y.shape) < 2:

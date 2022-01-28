@@ -3,12 +3,15 @@ np.set_printoptions(suppress=True)
 import networkx as nx
 import random
 import pandas as pd
+import sklearn
 import tensorflow.compat.v1 as tf
 import pickle
 import argparse
 import os
 from sys import exit
 import seaborn as sns
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 def load_args():
     """ Load args and run some basic checks.
@@ -156,7 +159,7 @@ def gen_data_nonlinear(G, mean = 0, var = 1, SIZE = 10000, perturb = [], sigmoid
             g.append(np.random.normal(mean,var,SIZE))
 
     g = np.swapaxes(g,0,1)
-    return pd.DataFrame(g, columns = list(map(str, list_nodes)))
+    return pd.DataFrame(g, columns = list(map(str, range(g.shape[1]))))
 
 
 def swap_cols(df, a, b):
@@ -169,6 +172,7 @@ def swap_nodes(G, a, b):
     return nx.relabel_nodes(newG, {'temp' : b})
 
 def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose = False, seed=0):
+    global G
     random_stability(seed)
     if name == 'toy':
         '''
@@ -217,6 +221,7 @@ def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose
             print("Edges = ", len(G.edges()), list(G.edges()))
     
     elif name == 'fico':
+        G = nx.DiGraph()
         csv = './data/fico/WOE_Rud_data.csv'
         csv_y = './data/fico/y_data.csv'
         label = 'RiskPerformance'
@@ -224,9 +229,9 @@ def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose
         y = pd.read_csv(os.path.join(csv_y))
         y = pd.get_dummies(y[label])[['Bad']].to_numpy()
         df.insert(loc=0, column=label, value=y)
-        G = None
 
     elif name == 'adult':
+        G = nx.DiGraph()
         from pmlb import fetch_data
         label = 'Income_50k'
 
@@ -234,7 +239,39 @@ def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose
         cols = list(dataset.columns)
         cols = [cols[-1]] + cols[:-1]
         df = dataset[cols]
-        G = None
+
+        ##Rebalance data 
+        sample1 = df.iloc[pd.Index(np.random.choice(df[df['target']==1].index, df[df['target']==0].shape[0]))]
+        all0 = df[df['target']==0]
+        df = pd.concat([sample1,all0],ignore_index=True).sample(frac=1).reset_index(drop=True)
+
+
+    elif name == 'boston':
+        G = nx.DiGraph()
+        # from keras.datasets import boston_housing
+        # (train_data, train_targets), (test_data, test_targets) = boston_housing.load_data()
+        # if verbose:
+        #     print(f'Training data : {train_data.shape}')
+        #     print(f'Test data : {test_data.shape}')
+        #     print(f'Training sample : {train_data[0]}')
+        #     print(f'Training target sample : {train_targets[0]}')
+        from sklearn.datasets import load_boston
+        label = 'PRICE'
+
+        df = pd.DataFrame(load_boston().data, columns=load_boston().feature_names)
+        y = load_boston().target
+        df.insert(loc=0, column=label, value=y)
+
+
+    elif name == 'cali':
+        G = nx.DiGraph()
+        from sklearn.datasets import fetch_california_housing
+        housing = fetch_california_housing()
+        label = housing.target_names[0]
+
+        df = pd.DataFrame(housing.data, columns=housing.feature_names)
+        y = np.array(housing.target)
+        df.insert(loc=0, column=label, value=y)
 
     return G, df
 
@@ -272,6 +309,10 @@ def load_adj_mat(DAG_inject, known_perc, num_nodes, verbose=False):
 
     elif DAG_inject == 'fico_size':
         loaded_adj = pd.read_csv("fico_adj_matrix.csv").to_numpy()
+
+    elif DAG_inject == 'boston_size':
+        loaded_adj = pd.read_csv("boston_adj_matrix.csv").to_numpy()
+
 
     return loaded_adj
 
@@ -425,6 +466,204 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None):
         print("\nBlack Arrow = Edge in the original DAG,\nRed Arrow = Missing Edge, Blue Arrow = Additional Edge ")
         return G2
 
+
+def plot_ly_by(df, 
+        x, x_desc, 
+        y1='right', y1_desc="% of right edges", 
+        y1_range=[-0.8, 1], y1_ticks=[0,0.2,0.4,0.6,0.8,1], y1_vis=True,
+        y2='MSEmean', y2_desc="Mean Squared Error",
+        y2_range= [0, 1.8], y2_ticks=[0,0.2,0.5,0.8], y2_vis=True,
+        showleg = True,
+        legend_cord = [0.8,1.05],
+        save=False, name='',version='',
+        main_gray = '#262626',
+        sec_gray = '#595959',
+        main_blue = '#005383',
+        sec_blue = '#0085CA'):
+    df = df.sort_values(by=[x],axis=0)
+    # df=df[['Type', 'N_nodes','alpha', 'MSE', 'MAE','right']]
+    mses = df.groupby(['Type',x], as_index=False).agg([ 'count','mean','std']).round(2).reset_index()
+    mses.columns = list(map(''.join, mses.columns.values))
+    mses['text'] = mses[['MSEmean','MSEstd']].apply(lambda x : '{} ({})'.format(x[0],x[1]), axis=1)
+    mses[x] = mses[x].astype(str)
+    display(mses)
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    msesC = mses[mses['Type']==-1]
+    fig.add_trace(
+        go.Bar(x=msesC[x], y=msesC[y2], name="CASTLEMSE",
+        marker_color=main_gray,#'#FF4136', 
+        marker_line_color=main_gray,#rgb(8,48,107)',
+                    marker_line_width=2, opacity=0.6,
+        # error_y=dict(
+        #         type='data', # value of error bar given in data coordinates
+        #         array=msesC['MSEstd'],
+        #         visible=True,
+        #         color='Black',
+        #         thickness=1.5,
+        #         width=3),
+        showlegend=False,
+            text=msesC['text'],
+            textposition='auto',
+                    ),
+        secondary_y=True,
+    )
+    msesI = mses[mses['Type']==0.05]
+    fig.add_trace(
+        go.Bar(x=msesI[x], y=msesI[y2], name="InjectedMSE",
+        marker_color=main_blue,#'#0085CA',#'#3D9970', 
+        marker_line_color=main_blue,#'#0085CA',#'White',
+                    marker_line_width=2, opacity=0.6,
+        # error_y=dict(
+        #         type='data', # value of error bar given in data coordinates
+        #         array=msesI['MSEstd'],
+        #         visible=True,
+        #         color='Black',
+        #         thickness=1.5,
+        #         width=3),
+        showlegend=False,
+            text=msesI['text'],
+            textposition='inside',
+                    ),
+        secondary_y=True,
+    )
+
+    fig.add_trace(go.Box(
+        y=df[df['Type']==-1][y1],
+        x=df[df['Type']==-1][x].astype(str),
+        boxmean='sd', # represent mean
+        boxpoints=False,#'outliers',
+        name='CASTLE+',
+        marker_color=main_gray#'#FF4136'
+    ),
+        secondary_y=False,)
+
+    if y1=='right':
+        d = msesC['rebasedmean']#[i*1.2 for i in msesC['rightmean']]
+
+        fig.add_trace(
+            go.Scatter(x=msesC[x], y=d, name="CASTLE+20%" , mode='markers', marker_symbol='line-ew',
+                    marker=dict(
+                    color='Black',
+                    size=50,
+                    line=dict(
+                        color='Black',
+                        width=2)
+                        ),
+                    showlegend=False),
+            secondary_y=False, 
+        )
+
+    fig.add_trace(go.Box(
+        y=df[df['Type']==0.05][y1],
+        x=df[df['Type']==0.05][x].astype(str),
+        boxmean='sd', # represent mean
+        boxpoints=False,#'outliers',
+        name='Injected',
+        marker_color=main_blue#'#0085CA'#'#3D9970'
+    ),
+        secondary_y=False,)
+    fig.update_layout(
+        # yaxis_title='normalized moisture',
+        boxmode='group' # group together boxes of the different traces for each value of x
+    )
+
+    if not y1_vis:
+        y1_desc = ''
+    if not y2_vis:
+        y2_desc = ''
+    # Set x-axis title
+    fig.update_xaxes(showgrid=True,
+    title={'text':x_desc#,'font':{'size':18}
+    })
+    # Set y-axes titles
+    fig.update_yaxes(showgrid=True,nticks=10,zeroline=True, title={'text':y1_desc#,'font':{'size':18}
+    }, 
+    range=y1_range,
+    tickvals=y1_ticks,
+    tickformat=".0%",
+    secondary_y=False,
+    showticklabels=y1_vis
+    )
+    fig.update_yaxes(showgrid=True,nticks=10,zeroline=True, title={'text':y2_desc#,'font':{'size':18}
+    },
+    range=y2_range,
+    tickvals=y2_ticks,
+    secondary_y=True,
+    showticklabels=y2_vis)
+
+    if len(legend_cord)>0:
+        x_cord = legend_cord[0]
+        y_cord = legend_cord[1]
+    
+
+    if save:
+        # Add figure title
+        fig.update_layout(
+            showlegend=showleg,
+            title='',
+            legend={
+                'x':x_cord,
+                'y':y_cord,
+                # 'y':-0.08,
+                # 'x':0.92,
+                'orientation':"h",
+                'xanchor': 'center',
+                'yanchor': 'top'},
+            template='plotly_white',
+            autosize=True,
+            width=600, height=350, 
+            margin=dict(
+                l=10,
+                r=10,
+                b=0,
+                t=10,
+                pad=0
+            ),
+            font=dict(
+                family='Serif',#"Courier New, monospace",
+                size=18,
+                color="Black"
+            )    
+        )
+
+        output_folder = "figures"
+        if not os.path.exists(output_folder):
+            os.mkdir(output_folder)
+
+        out_path = os.path.join(output_folder,f"plot_{name}_{version}.png")
+
+        import kaleido
+        fig.write_image(out_path)
+
+    else:
+        # Add figure title
+        fig.update_layout(
+            margin=dict(l=50, r=0, t=20, b=20),
+            title={
+                'text': "",
+                # 'x':0.5,
+                # 'y':0.9,
+                # 'xanchor': 'center',
+                # 'yanchor': 'top'
+                },
+            legend={
+                'x':x_cord,
+                'y':y_cord,
+                # 'y':-0.17,
+                # 'x':0.85,
+                'orientation':"h",
+                'xanchor': 'center',
+                'yanchor': 'bottom'},
+            template='plotly_white',
+                font=dict(
+                    family='Serif',#"Courier New, monospace",
+                    size=18,
+                    color="Black"
+                )
+        )
+
+    fig.show()
 
 
 def save_pickle(obj, filename, verbose=True):

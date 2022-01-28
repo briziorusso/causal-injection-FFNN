@@ -2,25 +2,24 @@ import numpy as np
 from numpy.core.numeric import NaN
 np.set_printoptions(suppress=True)
 import networkx as nx
-import pickle
 import random
 import pandas as pd
-#import tensorflow as tf
-#Disable TensorFlow 2 behaviour
-from sklearn.model_selection import KFold, train_test_split
-from sklearn.preprocessing import StandardScaler  
-from sklearn.metrics import mean_squared_error
-from CASTLE2 import CASTLE
-from utils import *
 from signal import signal, SIGINT
-from sys import exit
 import argparse
 import datetime
 from tqdm import tqdm
-
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 
+from sklearn.model_selection import KFold, train_test_split
+from sklearn.preprocessing import StandardScaler  
+from sklearn.metrics import mean_squared_error
+
+from CASTLE2 import CASTLE ##TODO change name
+from utils import *
+
+#import tensorflow as tf
+#Disable TensorFlow 2 behaviour
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior() 
 
@@ -37,8 +36,8 @@ if __name__ == '__main__':
                         const=True, default=True,
                         help="Activate nice mode.")
 
-    parser.add_argument('--num_nodes', type = int, default = 20)
-    parser.add_argument('--branchf', type = float, default = 4)
+    parser.add_argument('--num_nodes', type = int, default = 20) #20
+    parser.add_argument('--branchf', type = float, default = 4) #4
     
     parser.add_argument('--dataset_sz', type = int, default = 5000)
     parser.add_argument('--output_log', type = str, default = 'castle_recon.log')
@@ -56,17 +55,19 @@ if __name__ == '__main__':
     
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
-    version = "r2"
+    version = "r7"
+    folder = "./results/"
     DAG_inject = 'partial' ## One of 'full', 'toy', 'partial'
     force_refit = True
     verbose = False
     known_perc = 0.2
     thetas = [-1, 0.05]
-    dataset_szs = [20000]
+    dataset_szs = [100, 1000, 5000, 10000]
+    hidden_n = 32 #X_DAG.shape[1]
 
     # dataset_szs = [args.dataset_sz]
     #[50,100,200,500,1000,2000,3000,4000,5000]
-    # dataset_szs = [int(e*1.25) for e in dataset_szs]
+    dataset_szs = [int(e*1.25) for e in dataset_szs]
     random_stability(0)
 
     if args.random_dag:
@@ -132,10 +133,15 @@ if __name__ == '__main__':
             df_test = gen_data_nonlinear(G, SIZE = int(100000*0.2))
 
     for dset_sz in tqdm(dataset_szs, desc="Dset", leave=None):
+        random_stability(0)
         
         kf_out = KFold(n_splits = args.out_folds, random_state = 0, shuffle = True)
         out_fold = 0
-        result_metrics_dict = {}
+        out_file = os.path.join(folder,f"Nested{args.out_folds}FoldCASTLE.Reg.Synth.{dset_sz}.{version}.pkl")
+        if os.path.exists(out_file):
+            result_metrics_dict = load_pickle(out_file, verbose=False)
+        else:
+            result_metrics_dict = {}
 
         for train_idx, val_idx in  tqdm(kf_out.split(df), desc="outer", leave=None):
             out_fold += 1
@@ -161,11 +167,14 @@ if __name__ == '__main__':
             ckpt_file = args.ckpt_file + "_ds" + str(dset_sz)
 
             ## create baseline for tuning
-            castle = CASTLE(num_train = X_DAG.shape[0], num_inputs = X_DAG.shape[1], n_hidden=X_DAG.shape[1], 
+            castle = CASTLE(num_train = X_DAG.shape[0], num_inputs = X_DAG.shape[1], n_hidden=hidden_n, 
                             reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                             w_threshold = 0, ckpt_file = ckpt_file)
             castle.fit(X=X_DAG, y=y_DAG, num_nodes=np.shape(X_DAG)[1], X_val=X_test, y_val=y_test,
                     overwrite=force_refit, tune=False, maxed_adj=None, tuned=False, verbose=False)
+
+            W_est = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
+            save_pickle(W_est, os.path.join(folder,f"adjmats/W_est.{dset_sz}.{out_fold}.{version}.pkl"), verbose=False)
 
             MSE_base = mean_squared_error(castle.pred(X_test), y_test)
             with open(args.output_log, "a") as logfile:
@@ -203,8 +212,8 @@ if __name__ == '__main__':
             elif DAG_inject == 'partial':
                 n = int(len(G.edges())*known_perc)
                 known_edges = random.sample(list(G.edges()), n)
-                if verbose:
-                    print(len(known_edges), known_edges)
+                # if verbose:
+                print(len(known_edges), known_edges)
                 loaded_adj = 1 - np.identity(args.num_nodes)
 
                 for item in known_edges:
@@ -217,8 +226,9 @@ if __name__ == '__main__':
                 fold = 0
                 # print("Dataset limits are", np.ptp(X_DAG), np.ptp(X_test), np.ptp(y_test))
                 for train_idx, val_idx in tqdm(kf.split(X_DAG), desc="inner", leave=None):
-                    # castle.__del__()
-                    
+                    if castle:
+                        castle.__del__()
+
                     score = {}
                     fold += 1
 
@@ -234,13 +244,13 @@ if __name__ == '__main__':
 
                     start = datetime.datetime.now()
                     if theta >= 0:
-                        castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=X_train.shape[1], 
+                        castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=hidden_n,#X_train.shape[1], 
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                             w_threshold = theta, ckpt_file = ckpt_file, tune = True, hypertrain = True, adj_mat=loaded_adj)
                         castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
                                 overwrite=False, tune=True, maxed_adj=None, tuned=False, verbose=False)
                     else:
-                        castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=X_train.shape[1], 
+                        castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=hidden_n,#X_train.shape[1],
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                             w_threshold = theta, ckpt_file = args.ckpt_file)
                         castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
@@ -248,7 +258,7 @@ if __name__ == '__main__':
                     ct = datetime.datetime.now() - start
 
                     W_est = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
-                    save_pickle(W_est, os.path.join(f"results/adjmats/W_est.{dset_sz}.{out_fold}.{fold}.{str(theta)}.{version}.pkl"), verbose=False)
+                    save_pickle(W_est, os.path.join(folder, f"adjmats/W_est.{dset_sz}.{out_fold}.{fold}.{str(theta)}.{version}.pkl"), verbose=False)
                     # heat_mat(W_est)
 
                     G1 = nx.from_numpy_matrix(W_est, create_using=nx.DiGraph, parallel_edges=False)
@@ -306,7 +316,7 @@ if __name__ == '__main__':
 
                     # print("theta:",theta, ", fold:",fold, ", MSE:",score['MSE'])
 
-                    save_pickle(result_metrics_dict, os.path.join(f"results/Nested{args.out_folds}FoldCASTLE.Reg.Synth.{dset_sz}.{version}.pkl"), verbose=False)
+                    save_pickle(result_metrics_dict, out_file, verbose=False)
 
 
 

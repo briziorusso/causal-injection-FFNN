@@ -33,27 +33,37 @@ print(tf.config.list_physical_devices())
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
+    ## Run arguments
+    parser.add_argument('--gpu', type = str, default = '')
+    parser.add_argument('--extension', type = str, default = '')    
     parser.add_argument('--version', default='test')
     parser.add_argument('--csv')
     parser.add_argument('--output_log', type = str, default = 'castle_recon.log')
     parser.add_argument('--ckpt_file', type = str, default = 'recon.ckpt')
+    parser.add_argument('--force_refit', type=str2bool, nargs='?',
+                        const=True, default=True,
+                        help="Activate nice mode.")
 
+    ## Data and model
     parser.add_argument("--random_dag", type=str2bool, nargs='?',
                         const=True, default=True,
                         help="Activate nice mode.")
     parser.add_argument('--num_nodes', type = int, default = 50) #20
     parser.add_argument('--branchf', type = float, default = 2) #4
     parser.add_argument('--known_p', type = float, default = 0.2) #0.2
-    parser.add_argument('--noise_p', type = float, default = 0.2) #0.2
+    parser.add_argument('--noise_p', type = float, default = 0.0) #0.2
     parser.add_argument('--dataset_sz', type = int, default = 5000)
-
-    parser.add_argument('--out_folds', type = int, default = 1)
-    parser.add_argument('--in_folds', type = int, default = 1)
+    parser.add_argument('--hidden_l', type = int, default = 1) #20
+    parser.add_argument('--hidden_n_p', type = float, default = 3.2) #20
     parser.add_argument('--reg_lambda', type = float, default = 1)
     parser.add_argument('--reg_beta', type = float, default = 5)
 
-    parser.add_argument('--gpu', type = str, default = '')
-    parser.add_argument('--extension', type = str, default = '')
+    ## Experiment strategy
+    parser.add_argument('--out_folds', type = int, default = 1)
+    parser.add_argument('--in_folds', type = int, default = 1)
+
+
+
        
     args = parser.parse_args()
     signal(SIGINT, handler)
@@ -67,10 +77,16 @@ if __name__ == '__main__':
 
     version = args.version#"r_ex_5b", 'r_ex_1b_50'
     folder = "./results/"
-    args.ckpt_file = os.path.join("./models/",args.ckpt_file)
+    args.ckpt_file = os.path.join("./models/", version, args.ckpt_file)
+    args.output_log = os.path.join("./logs/", version, args.output_log)
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+    if not os.path.exists(os.path.join("./logs/", version)):
+        os.mkdir(os.path.join("./logs/", version))
+
     # args.csv = 'synth_nonlinear.csv'
     DAG_inject = 'partial' ## One of 'full', 'toy', 'partial'
-    force_refit = True
+    force_refit = args.force_refit
     verbose = False
     standardise = True
 
@@ -88,7 +104,7 @@ if __name__ == '__main__':
 
         random_stability(seed)
 
-        if seed == 0:
+        if seed < 1000: ############################################################################################
             continue
 
         pbar2 = tqdm(nodes_list, leave=None)
@@ -96,10 +112,11 @@ if __name__ == '__main__':
             pbar2.set_description("Nodes %s" % num_nodes)
             pbar2.refresh()
 
-            # if num_nodes in [10,20]:
-            #     continue
+            if seed==1000 and num_nodes in [10,20]: ##################################################################
+                continue
             
-            hidden_n = int(num_nodes*3.2)
+            hidden_n = int(num_nodes*args.hidden_n_p)
+            hidden_l = args.hidden_l
             
             dataset_szs = [int(num_nodes*a*1.25) for a in alphas]
 
@@ -174,8 +191,8 @@ if __name__ == '__main__':
                 pbar3.set_description("alpha %s" % alpha)
                 pbar3.refresh()
 
-                # if alpha not in [500]:
-                #     continue             
+                if seed == 1000 and alpha <500: ###################################################################################################
+                    continue             
                 
                 if args.out_folds >= 2:
                     kf_out = KFold(n_splits = args.out_folds, random_state = seed, shuffle = True)
@@ -219,7 +236,7 @@ if __name__ == '__main__':
                     ckpt_file = args.ckpt_file + "_ds" + str(dset_sz)
 
                     ## create baseline for tuning
-                    castle = CASTLE(num_train = X_DAG.shape[0], num_inputs = X_DAG.shape[1], n_hidden=hidden_n, 
+                    castle = CASTLE(num_train = X_DAG.shape[0], num_inputs = X_DAG.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
                                     reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                     w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
                     castle.fit(X=X_DAG, y=y_DAG, num_nodes=np.shape(X_DAG)[1], X_val=X_test, y_val=y_test,
@@ -266,7 +283,7 @@ if __name__ == '__main__':
                         known_edges = random.sample(list(G.edges()), n)
                         if verbose:
                             print(len(known_edges), known_edges)
-                        loaded_adj = 1 - np.identity(num_nodes)
+                        loaded_adj = 1 - np.identity(df.shape[1])
 
                         for item in known_edges:
                             loaded_adj[item[1],item[0]]=0
@@ -285,7 +302,7 @@ if __name__ == '__main__':
                     for theta in tqdm(thetas, desc="thetas", leave=None):
                         fold = 0
 
-                        # if theta == -1: #########################################################
+                        # if seed == 3000 and theta == -1: ################################################################################################################
                         #     continue    
 
                         # print("Dataset limits are", np.ptp(X_DAG), np.ptp(X_test), np.ptp(y_test))
@@ -308,13 +325,13 @@ if __name__ == '__main__':
 
                             start = datetime.datetime.now()
                             if theta >= 0:
-                                castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=hidden_n,#X_train.shape[1], 
+                                castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
                                                 reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                                     w_threshold = theta, ckpt_file = ckpt_file, tune = True, hypertrain = True, adj_mat=loaded_adj)
                                 castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
                                         overwrite=False, tune=True, maxed_adj=None, tuned=False, verbose=verbose)
                             else:
-                                castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=hidden_n,#X_train.shape[1],
+                                castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
                                                 reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                                     w_threshold = theta, ckpt_file = args.ckpt_file)
                                 castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
@@ -384,8 +401,18 @@ if __name__ == '__main__':
 
                                 DAG_score = (n_perm + len(a-a.intersection(b))*penalty_mis + len(b-a.intersection(b))*penalty_add)/n_perm
                             #     print("DAG score", DAG_score)
+                                fooled_p = 0
+                                fooled_edges = 0
+                                causenoise = 0
+                                if noise_perc>0:
+                                    len_noisy = int(len(G.nodes)*noise_perc)
+                                    ## find if there are edges from or to random nodes
+                                    causenoise = np.sum(maxed_adj[ :, -len_noisy:] > 0)
+                                    causedbynoise = np.sum(maxed_adj[-len_noisy: , :] > 0)
+                                    fooled_p = (causenoise+causedbynoise)/((df.shape[1]*len_noisy-2)*2)
+                                    fooled_edges = causenoise+causedbynoise
 
-                                scores.append((tau,DAG_score, len(G1.edges()), len(a-a.intersection(b)), len(b-a.intersection(b)), len(a.intersection(b)), len(a.intersection(b))/len(G.edges()) ))
+                                scores.append((tau,DAG_score, len(G1.edges()), len(a-a.intersection(b)), len(b-a.intersection(b)), len(a.intersection(b)), len(a.intersection(b))/len(G.edges()) , fooled_p, fooled_edges, causenoise))
                     #         print(scores)
                             c_tau = max([a[1] for a in scores])   
                             max_tau =  [a[0] for a in scores if a[1] ==c_tau][0]
@@ -398,6 +425,9 @@ if __name__ == '__main__':
                             # print('perfect:' ,len([a[1] for a in scores if a[1] ==c_tau and a[1] ==1]))
                             right = [a[6] for a in scores if a[1] ==c_tau][0]
                             wrong = 1-right
+                            fooled = [a[7] for a in scores if a[1] ==c_tau][0]
+                            fooled_e = [a[8] for a in scores if a[1] ==c_tau][0]
+                            causenoise = [a[9] for a in scores if a[1] ==c_tau][0]
 
                             if verbose:
                                 print("Matching:",matching  )
@@ -414,11 +444,10 @@ if __name__ == '__main__':
                             score['DAG_score'] = Dscore
                             score['right'] = right
                             score['wrong'] = wrong
-
-                            if percent_noise>0:
-                                len_noisy = int(len(list_nodes)*percent_noise)
-                                ## find if there are edges from or to random nodes
-                                
+                            score['fooled'] = fooled
+                            score['fooled_e'] = fooled_e
+                            score['causenoise'] = causenoise
+                               
                             result_metrics_dict[ "theta="+str(theta)+", num_nodes="+str(num_nodes) + ", data_sz=" + str(dset_sz) +", seed="+str(seed)+", out_fold="+str(out_fold)+", fold="+str(fold)] = score
                 
                             # print("theta:",theta, ", fold:",fold, ", MSE:",score['MSE'])
