@@ -124,8 +124,9 @@ if __name__ == '__main__':
     # parser.add_argument('--reg_beta', type = float, default = 5)
 
     random_stability(seed)
-    print(dag_type)
-    print(args.lr)
+    if verbose:
+        print(dag_type)
+        print(args.lr)
     G, df = load_or_gen_data(name=dag_type, csv=args.csv)
 
     if len(dataset_szs) > 1:
@@ -157,7 +158,7 @@ if __name__ == '__main__':
         for train_idx, val_idx in  pbar2:
             out_fold += 1
 
-            # if out_fold <=3: ###################################################################################################
+            # if out_fold <=1: ###################################################################################################
             #     continue
 
             pbar2.set_description("out_fold %s" % out_fold)
@@ -255,8 +256,8 @@ if __name__ == '__main__':
                         '\n')
 
             ## Load or create Adjacency matric
-            if DAG_inject in ['toy','full'] or 'size' in DAG_inject:
-                loaded_adj = load_adj_mat(DAG_inject)
+            if DAG_inject in ['toy','full'] or 'size' in DAG_inject or 'partial' in version:
+                loaded_adj = load_adj_mat(df, DAG_inject, version)
             elif DAG_inject == 'partial':
                 n = int(len(G.edges())*known_perc)
                 known_edges = random.sample(list(G.edges()), n)
@@ -354,6 +355,11 @@ if __name__ == '__main__':
                     # else:
                     #     lr = 0.001
                     #     b_size = 32
+
+
+                    if 'refine' in version:
+                        DAG_mat_0 = DAG_retreive_np(loaded_adj, theta)
+                        loaded_adj = refine_mat(df, DAG_mat_0, version)
 
                     ## Fit Network, with or without injection
                     start = datetime.datetime.now()
