@@ -41,14 +41,16 @@ if __name__ == '__main__':
     parser.add_argument('--output_log', type = str, default = 'castle_recon.log')
     parser.add_argument('--ckpt_file', type = str, default = 'recon.ckpt')
     parser.add_argument('--force_refit', type=str2bool, nargs='?',
-                        const=True, default=True,
+                        const=True, default=False,
                         help="Activate nice mode.")
-
+    parser.add_argument('--overwrite_res', type=str2bool, nargs='?',
+                        const=True, default=False,
+                        help="Activate nice mode.")
     ## Data and model
     parser.add_argument("--random_dag", type=str2bool, nargs='?',
                         const=True, default=True,
                         help="Activate nice mode.")
-    parser.add_argument('--num_nodes', type = int, default = 50) #20
+    parser.add_argument('--num_nodes', type = int, default = 10) #20
     parser.add_argument('--branchf', type = float, default = 2) #4
     parser.add_argument('--known_p', type = float, default = 0.2) #0.2
     parser.add_argument('--noise_p', type = float, default = 0.0) #0.2
@@ -62,9 +64,6 @@ if __name__ == '__main__':
     parser.add_argument('--out_folds', type = int, default = 1)
     parser.add_argument('--in_folds', type = int, default = 1)
 
-
-
-       
     args = parser.parse_args()
     signal(SIGINT, handler)
     
@@ -75,23 +74,21 @@ if __name__ == '__main__':
 
     # with tf.device(args.gpu):
 
-    version = args.version#"r_ex_5b", 'r_ex_1b_50'
-    folder = "./results/"
-    args.ckpt_file = os.path.join("./models/", version, args.ckpt_file)
-    args.output_log = os.path.join("./logs/", version, args.output_log)
-    if not os.path.exists(folder):
-        os.mkdir(folder)
-    if not os.path.exists(os.path.join("./logs/", version)):
-        os.mkdir(os.path.join("./logs/", version))
+    runs_list_theta = check_run_status(args.version)
 
-    # args.csv = 'synth_nonlinear.csv'
+    folder = "./results/"
+    if not os.path.exists(folder):
+        os.mkdir(folder)    
+        
+    args.output_log = os.path.join("./logs/", args.version, args.output_log)
+    if not os.path.exists(os.path.join("./logs/", args.version)):
+        os.mkdir(os.path.join("./logs/", args.version))
+
+    # args.csv = 'synth_nonlinear.csv' ## toy
     DAG_inject = 'partial' ## One of 'full', 'toy', 'partial'
-    force_refit = args.force_refit
     verbose = False
     standardise = True
 
-    known_perc = args.known_p
-    noise_perc = args.noise_p
     thetas = [-1, 0.05]
     seeds_list = [0, 10, 100, 1000, 2000, 3000, 4000, 5000, 6000, 7000]
     nodes_list = [10,20,50]
@@ -104,16 +101,16 @@ if __name__ == '__main__':
 
         random_stability(seed)
 
-        if seed < 1000: ############################################################################################
-            continue
+        # if seed <= 1000: ############################################################################################
+        #     continue
 
         pbar2 = tqdm(nodes_list, leave=None)
         for num_nodes in pbar2:
             pbar2.set_description("Nodes %s" % num_nodes)
             pbar2.refresh()
 
-            if seed==1000 and num_nodes in [10,20]: ##################################################################
-                continue
+            # if seed in [2000,3000] and num_nodes in [10,20]: ##################################################################
+            #     continue
             
             hidden_n = int(num_nodes*args.hidden_n_p)
             hidden_l = args.hidden_l
@@ -121,67 +118,11 @@ if __name__ == '__main__':
             dataset_szs = [int(num_nodes*a*1.25) for a in alphas]
 
             if args.random_dag:
-                def swap_cols(df, a, b):
-                    df = df.rename(columns = {a : 'temp'})
-                    df = df.rename(columns = {b : a})
-                    return df.rename(columns = {'temp' : b})
-                def swap_nodes(G, a, b):
-                    newG = nx.relabel_nodes(G, {a : 'temp'})
-                    newG = nx.relabel_nodes(newG, {b : a})
-                    return nx.relabel_nodes(newG, {'temp' : b})
-                
-                #Random DAG
-                num_edges = int(num_nodes*args.branchf)
-                G = gen_random_dag(num_nodes, num_edges, seed=seed)
-
-                noise = random.uniform(0.3, 1.0)
-                if verbose:
-                    print("Setting noise to ", noise)
-                
-                df = gen_data_nonlinear(G, SIZE = 100000, var = noise, percent_noise=noise_perc, seed=seed)
-                # df_test =  gen_data_nonlinear(G, SIZE = int(dset_sz*0.25), var = noise)
-                
-                for i in range(len(G.edges())):
-                    if len(list(G.predecessors(i))) > 0:
-                        df = swap_cols(df, str(0), str(i))
-                        # df_test = swap_cols(df_test, str(0), str(i))
-                        G = swap_nodes(G, 0, i)
-                        break      
-
-                df = pd.DataFrame(df)
-                # df_test = pd.DataFrame(df_test)
-                        
-                #print("Number of parents of G", len(list(G.predecessors(i))))
-                if verbose:
-                    print("Edges = ", len(G.edges()), list(G.edges()))
-                
+                dag_type = 'random'
             else:
-                '''
-                Toy DAG
-                The node '0' is the target in the Toy DAG
-                '''
-                G = nx.DiGraph()
-                for i in range(10):
-                    G.add_node(i)
-                G.add_edge(1,2)
-                G.add_edge(1,3)
-                G.add_edge(1,4)
-                G.add_edge(2,5)
-                G.add_edge(2,0)
-                G.add_edge(3,0)
-                G.add_edge(3,6)
-                G.add_edge(3,7)
-                G.add_edge(6,9)
-                G.add_edge(0,8)
-                G.add_edge(0,9)
+                dag_type = 'toy'
 
-                if args.csv:
-                    df = pd.read_csv(args.csv)
-                    # df_test = df.iloc[-1000:]
-                    # df = df.iloc[:dset_sz]
-                else: 
-                    df = gen_data_nonlinear(G, SIZE = 100000)
-                    df_test = gen_data_nonlinear(G, SIZE = int(5000))
+            G, df = load_or_gen_data(name=dag_type, num_nodes=num_nodes, branchf=args.branchf, csv=args.csv)
 
             pbar3 = tqdm(dataset_szs, leave=None)
             for dset_sz in pbar3:
@@ -191,9 +132,14 @@ if __name__ == '__main__':
                 pbar3.set_description("alpha %s" % alpha)
                 pbar3.refresh()
 
-                if seed == 1000 and alpha <500: ###################################################################################################
-                    continue             
-                
+                # if seed == 2000 and num_nodes==50 and alpha ==50: ###################################################################################################
+                #     continue       
+
+                ## Check if the run is already in store@
+                current_run_code = str(seed)+str(num_nodes)+str(int(alpha))
+                if all([i in runs_list_theta for i in [current_run_code+"-1.0",current_run_code+"0.05"]]) and args.overwrite_res==False:
+                    continue
+
                 if args.out_folds >= 2:
                     kf_out = KFold(n_splits = args.out_folds, random_state = seed, shuffle = True)
                     kf_out_splits = kf_out.split(df)
@@ -202,7 +148,7 @@ if __name__ == '__main__':
                     kf_out_splits = [tuple([train.index.to_numpy(), test.index.to_numpy()])]
 
                 out_fold = 0
-                out_file = os.path.join(folder,f"Nested{args.out_folds}FoldCASTLE.Reg.Synth.{num_nodes}.{dset_sz}.{version}.pkl")
+                out_file = os.path.join(folder,f"Nested{args.out_folds}FoldCASTLE.Reg.Synth.{num_nodes}.{dset_sz}.{args.version}.pkl")
                 if os.path.exists(out_file):
                     result_metrics_dict = load_pickle(out_file, verbose=False)
                 else:
@@ -233,60 +179,54 @@ if __name__ == '__main__':
                     X_test = df_test
                     y_test = df_test[:,0]
 
-                    ckpt_file = args.ckpt_file + "_ds" + str(dset_sz)
+                    castle = None
+                    if current_run_code+"0.05" not in runs_list_theta:
 
-                    ## create baseline for tuning
-                    castle = CASTLE(num_train = X_DAG.shape[0], num_inputs = X_DAG.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
-                                    reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
-                                    w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
-                    castle.fit(X=X_DAG, y=y_DAG, num_nodes=np.shape(X_DAG)[1], X_val=X_test, y_val=y_test,
-                            overwrite=force_refit, tune=False, maxed_adj=None, tuned=False, verbose=verbose)
+                        ## Do not refit existing model for baseline castle if seed, folds and model structure is the same
+                        ckpt_file = os.path.join("./models/common_seed_size", args.ckpt_file + 
+                                                        "_seed" + str(seed) + "_of" + str(out_fold) + 
+                                                        "_nodes" + str(num_nodes) + "_b" + str(args.branchf) + 
+                                                        "_ds" + str(dset_sz) + "_np" + str(args.noise_p) +
+                                                        "_hl" + str(args.hidden_l) + "_hn" + str(args.hidden_n_p)
+                                                        )
+                        ## create baseline for tuning
+                        castle = CASTLE(num_train = X_DAG.shape[0], num_inputs = X_DAG.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
+                                        reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
+                                        w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
+                        castle.fit(X=X_DAG, y=y_DAG, num_nodes=np.shape(X_DAG)[1], X_val=X_test, y_val=y_test,
+                                overwrite=False, tune=False, maxed_adj=None, tuned=False, verbose=verbose)
 
-                    W_est = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
-                    save_pickle(W_est, os.path.join(folder,f"adjmats/W_est.{num_nodes}.{seed}.{dset_sz}.{out_fold}.{version}.pkl"), verbose=False)
+                        out_file_mat = os.path.join(folder,f"adjmats/baselines/W_est.{seed}.{out_fold}.{num_nodes}.{args.branchf}.{dset_sz}.{args.noise_p}.{args.hidden_l}.{args.hidden_n_p}.pkl")
+                        if os.path.exists(out_file_mat):
+                            W_est = load_pickle(out_file_mat, verbose=False)
+                        else:
+                            if not os.path.exists(os.path.join(folder,"adjmats/baselines/")):
+                                os.mkdir(os.path.join(folder,"adjmats/baselines/"))
+                            W_est = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
+                            save_pickle(W_est, os.path.join(out_file_mat), verbose=False)
 
-                    MSE_base = mean_squared_error(castle.pred(X_test), y_test)
-                    with open(args.output_log, "a") as logfile:
-                        logfile.write(str(dset_sz) + ",  baseliine" ",  "+
-                                "${0:.6f}$".format(round(MSE_base,6)) + 
-                                '\n')
+                            MSE_base = mean_squared_error(castle.pred(X_test), y_test)
+                            with open(args.output_log, "a") as logfile:
+                                logfile.write("baseliine" + ",  seed"+ str(seed)+ ",  out_fold" + str(out_fold) + 
+                                                ",  num_nodes" + str(num_nodes) + ",  p_edges" + str(args.branchf) +
+                                                ",  dset_sz"+ str(dset_sz) + ",  noise_p" + str(args.noise_p) + 
+                                                ",  hidden_l"  + str(args.hidden_l) + ",  hidden_n_p" + str(args.hidden_n_p) +
+                                        ",  performance" + "${0:.6f}$".format(round(MSE_base,6)) + 
+                                        '\n')
 
-                    if DAG_inject == 'full':
-                        loaded_adj = np.array((
-                        [0.0,0.002,0.017,0.021,0.005,0.045,0.035,0.007,0.053,0.055],
-                        [0.008,0.0,0.072,0.061,0.07,0.005,0.011,0.008,0.004,0.007],
-                        [0.095,0.036,0.0,0.031,0.027,0.139,0.009,0.005,0.011,0.008],
-                        [0.071,0.04,0.031,0.0,0.035,0.003,0.108,0.109,0.011,0.007],
-                        [0.013,0.045,0.022,0.027,0.0,0.008,0.011,0.004,0.007,0.005],
-                        [0.039,0.003,0.022,0.006,0.005,0.0,0.009,0.007,0.003,0.014],
-                        [0.038,0.004,0.007,0.011,0.007,0.01,0.0,0.023,0.003,0.163],
-                        [0.024,0.006,0.004,0.01,0.003,0.022,0.028,0.0,0.009,0.009],
-                        [0.026,0.004,0.006,0.002,0.009,0.004,0.015,0.005,0.0,0.014],
-                        [0.026,0.004,0.004,0.005,0.004,0.008,0.073,0.004,0.007,0.0]
-                        ))
-                    elif DAG_inject == 'toy':
-                    ##Partial inject experiment
-                        loaded_adj = np.array((
-                        [0.0,1.0,0.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0],
-                        [1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
-                        [1.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
-                        [1.0,1.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0],
-                        [1.0,1.0,1.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0],
-                        [1.0,1.0,1.0,1.0,1.0,0.0,1.0,1.0,1.0,1.0],
-                        [1.0,1.0,1.0,1.0,1.0,1.0,0.0,1.0,1.0,1.0],
-                        [1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.0,1.0,1.0],
-                        [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.0,1.0],
-                        [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.0]
-                        ))
+                    ## Load or create Adjacency matric
+                    if DAG_inject in ['toy','full'] or 'size' in DAG_inject:
+                        loaded_adj = load_adj_mat(DAG_inject)
                     elif DAG_inject == 'partial':
-                        n = int(len(G.edges())*known_perc)
+                        n = int(len(G.edges())*args.known_p)
                         known_edges = random.sample(list(G.edges()), n)
                         if verbose:
                             print(len(known_edges), known_edges)
-                        loaded_adj = 1 - np.identity(df.shape[1])
-
+                        loaded_adj = 1 - np.identity(num_nodes)
                         for item in known_edges:
-                            loaded_adj[item[1],item[0]]=0
+                            loaded_adj[item[1],item[0]]=0            
+                    elif DAG_inject not in ['toy','random']:
+                        loaded_adj = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
                     
                     if args.in_folds >= 2:
                         kf = KFold(n_splits = args.in_folds, random_state = seed, shuffle = True)
@@ -302,8 +242,12 @@ if __name__ == '__main__':
                     for theta in tqdm(thetas, desc="thetas", leave=None):
                         fold = 0
 
-                        # if seed == 3000 and theta == -1: ################################################################################################################
+                        # if seed == 2000 and theta != -1: ################################################################################################################
                         #     continue    
+                        ## Check if the run is already in store@
+                        current_run_code = str(seed)+str(num_nodes)+str(int(alpha))+str(theta)
+                        if current_run_code in runs_list_theta and args.overwrite_res==False:
+                            continue
 
                         # print("Dataset limits are", np.ptp(X_DAG), np.ptp(X_test), np.ptp(y_test))
                         for train_idx, val_idx in kf_splits:#tqdm(kf_splits, desc="inner", leave=None):
@@ -322,6 +266,13 @@ if __name__ == '__main__':
                             X_val = X_DAG[val_idx]
                             y_val = X_DAG[val_idx][:,0]
 
+                            ## Do not refit existing model for normal castle if seed, folds and model structure is the same
+                            ckpt_file1 = os.path.join("./models/", "castle", args.ckpt_file + 
+                                                        "_seed" + str(seed) + "_of" + str(out_fold) + "_if" + str(fold) + 
+                                                        "_nodes" + str(num_nodes) + "_b" + str(args.branchf) + 
+                                                        "_ds" + str(dset_sz) + "_np" + str(args.noise_p) +
+                                                        "_hl" + str(args.hidden_l) + "_hn" + str(args.hidden_n_p)
+                                                        )
 
                             start = datetime.datetime.now()
                             if theta >= 0:
@@ -329,17 +280,17 @@ if __name__ == '__main__':
                                                 reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                                     w_threshold = theta, ckpt_file = ckpt_file, tune = True, hypertrain = True, adj_mat=loaded_adj)
                                 castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
-                                        overwrite=False, tune=True, maxed_adj=None, tuned=False, verbose=verbose)
+                                        overwrite=True, tuned=False, tune=True, maxed_adj=loaded_adj, verbose=verbose)
                             else:
                                 castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
                                                 reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
-                                                    w_threshold = theta, ckpt_file = args.ckpt_file)
+                                                    w_threshold = theta, ckpt_file = ckpt_file1)
                                 castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
-                                        overwrite=force_refit, tune=False, maxed_adj=None, tuned=False, verbose=verbose)
+                                        overwrite=args.force_refit, tuned=False, tune=False, maxed_adj=None, verbose=verbose)
                             ct = datetime.datetime.now() - start
 
                             W_est = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
-                            save_pickle(W_est, os.path.join(folder, f"adjmats/W_est.{num_nodes}.{seed}.{dset_sz}.{out_fold}.{fold}.{str(theta)}.{version}.pkl"), verbose=False)
+                            save_pickle(W_est, os.path.join(folder, f"adjmats/W_est.{num_nodes}.{seed}.{dset_sz}.{out_fold}.{fold}.{str(theta)}.{args.version}.pkl"), verbose=False)
                             # heat_mat(W_est)
 
                             REG_castle.append(mean_squared_error(castle.pred(X_test), y_test))
@@ -404,8 +355,8 @@ if __name__ == '__main__':
                                 fooled_p = 0
                                 fooled_edges = 0
                                 causenoise = 0
-                                if noise_perc>0:
-                                    len_noisy = int(len(G.nodes)*noise_perc)
+                                if args.noise_p>0:
+                                    len_noisy = int(len(G.nodes)*args.noise_p)
                                     ## find if there are edges from or to random nodes
                                     causenoise = np.sum(maxed_adj[ :, -len_noisy:] > 0)
                                     causedbynoise = np.sum(maxed_adj[-len_noisy: , :] > 0)
@@ -455,10 +406,14 @@ if __name__ == '__main__':
                             save_pickle(result_metrics_dict, out_file, verbose=False)
 
                         def format_str(mean, std):
-                            return "${0:.6f}".format(round(mean,6)) + " \pm {0:.6f}$    ".format(round(std,6))
+                            return "${0:.6f}".format(round(mean,6)) + " ({0:.6f})$ ".format(round(std,6))
                         with open(args.output_log, "a") as logfile:
-                            logfile.write(str(num_nodes) + ",  " + str(seed) + ",  " + str(dset_sz) + ",  " + str(theta)  + ",  "+
-                                        format_str(np.mean(REG_castle), np.std(REG_castle)) + 
+                                    logfile.write("theta" +str(theta) + ",  seed"+ str(seed)+ ",  out_fold" + str(out_fold) + 
+                                        ",  num_nodes" + str(num_nodes) + ",  p_edges" + str(args.branchf) +
+                                        ",  dset_sz"+ str(dset_sz) + ",  noise_p" + str(args.noise_p) + 
+                                        ",  hidden_l"  + str(args.hidden_l) + ",  hidden_n_p" + str(args.hidden_n_p) +
+                                        ",  performance" + format_str(np.mean(REG_castle), np.std(REG_castle)) + 
                                         '\n')
                         if verbose:    
                             print("MEAN =", np.mean(REG_castle), "STD =", np.std(REG_castle)) 
+

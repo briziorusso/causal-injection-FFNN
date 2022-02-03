@@ -412,7 +412,7 @@ class CASTLE(object): ## change name...
         self.saver.restore(self.sess, self.tmp)
 
     def fit(self, X, y, num_nodes, X_val, y_val, 
-            overwrite=False, tune=False, maxed_adj=None, tuned=False, seed = 0, verbose=True):            
+            version='temp', overwrite=False, tune=False, maxed_adj=None, tuned=False, seed = 0, verbose=True):            
 
         file_path = self.tmp + ".data-00000-of-00001"
 
@@ -439,7 +439,10 @@ class CASTLE(object): ## change name...
             if verbose:
                 print("Model Loaded from ", self.tmp)
 
-            self.tmp = self.tmp + "_tuned"
+            folder = '/'.join(self.tmp.split("/")[:-1])
+            file_name = self.tmp.split("/")[-1]
+
+            self.tmp = os.path.join(folder, version, file_name + "_tuned")
 
             if verbose:
                 print("Begin Tuning - Apply Mask from DAG")
