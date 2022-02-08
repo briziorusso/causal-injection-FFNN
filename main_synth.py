@@ -11,7 +11,6 @@ import argparse
 import datetime
 from tqdm import tqdm
 
-
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler  
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -23,7 +22,6 @@ from utils import *
 #Disable TensorFlow 2 behaviour
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior() 
-
 
 # tf.test.is_gpu_available(cuda_only=False, min_cuda_compute_capability=None)
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -184,9 +182,10 @@ if __name__ == '__main__':
                         net = InjectedNet(num_inputs = X_DAG.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                         w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
-                        net.fit(X=X_DAG, y=y_DAG, num_nodes=np.shape(X_DAG)[1], X_val=X_test, y_val=y_test,
+                        net.fit(X=X_DAG, y=y_DAG, num_nodes=X_DAG.shape[1], X_val=X_test, y_val=y_test,
                                 overwrite=False, inject=False, injected=False, verbose=verbose)
 
+                        ## Evaluate baseline
                         out_file_mat = os.path.join(folder,f"adjmats/baselines/W_est.{seed}.{out_fold}.{num_nodes}.{args.branchf}.{dset_sz}.{args.noise_p}.{args.hidden_l}.{args.hidden_n_p}.pkl")
                         if os.path.exists(out_file_mat):
                             W_est = load_pickle(out_file_mat, verbose=False)
@@ -265,15 +264,15 @@ if __name__ == '__main__':
                             start = datetime.datetime.now()
                             if theta >= 0:
                                 net = InjectedNet(num_inputs = X_train.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
-                                                reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
+                                                reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,
                                                     w_threshold = theta, ckpt_file = ckpt_file, inject = True, adj_mat=loaded_adj)
-                                net.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
+                                net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
                                         overwrite=True, injected=False, inject=True, verbose=verbose)
                             else:
                                 net = InjectedNet(num_inputs = X_train.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
-                                                reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
+                                                reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,
                                                     w_threshold = theta, ckpt_file = ckpt_file1)
-                                net.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
+                                net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
                                         overwrite=args.force_refit, injected=False, inject=False, verbose=verbose)
                             ct = datetime.datetime.now() - start
 
