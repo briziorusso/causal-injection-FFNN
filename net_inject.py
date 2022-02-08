@@ -13,6 +13,12 @@ np.set_printoptions(linewidth=np.inf)
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
+<<<<<<< HEAD
+=======
+from sklearn import preprocessing
+from sklearn.metrics import mean_squared_error
+
+>>>>>>> fc2bc93dcf440c6d9134ab20573c79a8486e052f
 from utils import random_stability, DAG_retrieve
 
 class InjectedNet(object): 
