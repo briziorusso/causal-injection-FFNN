@@ -127,4 +127,7 @@ dmypy.json
 # Private folders
 /Archive
 /models
+/results
 /Adjmats_real_examples
+/Experiments_aistats22/models
+/Runner_nbs
