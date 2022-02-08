@@ -452,26 +452,20 @@ def heat_mat(mat, names=None, colour="#003E74"):
 
 def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None, 
             target='target', prime_causes=['age','sex','native-country','race'],
-            output_folder='figures',name='DAG',version='test'):
+            output_folder='figures',name='DAG',version='test', verbose = False):
     if type(mat) is np.ndarray:
         G1 = nx.from_numpy_matrix(mat, create_using=nx.DiGraph, parallel_edges=False)
     elif isinstance(mat, nx.classes.digraph.DiGraph):
         G1 = mat
     else:
         pass
-
-    print("Total Number of Edges in G:", G1.number_of_edges())
-    print("Max in degree:", max([d for n, d in G1.in_degree()]))
-    print("DAG:", nx.is_directed_acyclic_graph(G1))
+    if verbose:
+        print("Total Number of Edges in G:", G1.number_of_edges())
+        print("Max in degree:", max([d for n, d in G1.in_degree()]))
+        print("DAG:", nx.is_directed_acyclic_graph(G1))
 
     if graphic_type=="py":
         from pyvis import network as net
-        # from pyvis.network import Network
-        # from IPython.core.display import display, HTML
-        # net = Network(notebook=True)
-        # net.from_nx(G)
-        # net.toggle_drag_nodes(False)
-
 
         g=net.Network(notebook=True, width='100%', height='600px', directed=True)
         if names is None:
@@ -504,8 +498,8 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None,
             os.mkdir(output_folder)
 
         out_path = os.path.join(output_folder,f"plot_{name}_{version}.html")                
-        from IPython.display import HTML
-        HTML(g.write_html(out_path))  
+        from IPython.display import HTML, display
+        HTML(g.write_html(out_path))
         return g.show(out_path)
     
         
