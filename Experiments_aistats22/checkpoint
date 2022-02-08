@@ -1,0 +1,2 @@
+model_checkpoint_path: "adult.ckpt_ds100000"
+all_model_checkpoint_paths: "adult.ckpt_ds100000"
