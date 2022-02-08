@@ -1,33 +1,32 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 import numpy as np
 from numpy.core.numeric import NaN
 np.set_printoptions(suppress=True)
 import networkx as nx
-import pickle
 import random
 import pandas as pd
-from sklearn.model_selection import KFold, train_test_split
-from sklearn.preprocessing import StandardScaler  
-from sklearn.metrics import mean_squared_error, classification_report, roc_auc_score
-from CASTLE2 import CASTLE
-from utils import *
 from signal import signal, SIGINT
-from sys import exit
 import argparse
 import datetime
 from tqdm import tqdm
 
-import tensorflow.compat.v1 as tf
+from sklearn.model_selection import KFold, train_test_split
+from sklearn.preprocessing import StandardScaler  
+from sklearn.metrics import mean_squared_error, classification_report, roc_auc_score
+
+from net_inject import InjectedNet
+from utils import *
+
 #import tensorflow as tf
 #Disable TensorFlow 2 behaviour
+import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior() 
 
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
-import warnings
-warnings.filterwarnings('always') ## to avoid classification report to complain
-
 # tf.test.is_gpu_available(cuda_only=False, min_cuda_compute_capability=None)
-# tf.config.list_physical_devices('GPU')
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+print(tf.config.list_physical_devices())
+# tf.debugging.set_log_device_placement(True)
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -67,7 +66,7 @@ if __name__ == '__main__':
     version = args.version
 
     if any(x in version for x in ['boston','cali']): 
-        problem_type = 'reg' ## 'reg' or 'class' ################################################################ Important, TODO automatic recongnition
+        problem_type = 'reg' ## 'reg' or 'class' 
     elif any(x in version for x in ['fico','adult']): 
         problem_type = 'class' ## 'reg' or 'class' 
     
@@ -94,34 +93,6 @@ if __name__ == '__main__':
     thetas= [float(item) for item in args.thetas.split(',') if item]  ### Leave empty for automatic binning of the adj_mat
     theta_min_max= [float(item) for item in args.theta_range.split(',') if item]
     theta_interval = args.theta_auto ### True: binning is based on deciles, False: fixed intervals 0.001
-
-    ####### fico2 ######
-    # seed = 0
-    # dataset_szs = [100000]
-    # thetas = [] ### Leave empty for automatic binning of the adj_mat
-    # theta_interval = False ### True: binning is based on deciles, False: fixed intervales 0.001
-    # parser.add_argument('--dataset_sz', type = int, default = 5000)
-    # parser.add_argument('--output_log', type = str, default = 'fico2.log')
-    # parser.add_argument('--ckpt_file', type = str, default = 'fico2.ckpt')
-
-    # parser.add_argument('--out_folds', type = int, default = 5)
-    # parser.add_argument('--in_folds', type = int, default = 5)
-    # parser.add_argument('--reg_lambda', type = float, default = 1)
-    # parser.add_argument('--reg_beta', type = float, default = 5)
-
-    ####### fico size #####
-    # seed = 0
-    # DAG_inject = 'fico_size' ## One of 'full', 'toy', 'partial', 'fico', 'fico_size'
-    # thetas = [-1,0.006] ### Leave empty for automatic binning of the adj_mat
-    # dataset_szs = [100,500,1000,2000,3000,4000,5000,6000,7000,8000]
-    # parser.add_argument('--dataset_sz', type = int, default = 5000)
-    # parser.add_argument('--output_log', type = str, default = 'fico_size.log')
-    # parser.add_argument('--ckpt_file', type = str, default = 'fico_size.ckpt')
-
-    # parser.add_argument('--out_folds', type = int, default = 5)
-    # parser.add_argument('--in_folds', type = int, default = 5)
-    # parser.add_argument('--reg_lambda', type = float, default = 1)
-    # parser.add_argument('--reg_beta', type = float, default = 5)
 
     random_stability(seed)
     if verbose:
@@ -189,6 +160,7 @@ if __name__ == '__main__':
 
             ckpt_file = args.ckpt_file + "_ds" + str(dset_sz)
 
+            ## Adjust LR for very small samples
             if any(i in version for i in ['adult']):
                 if dset_sz <= 200:
                     lr = 0.001
@@ -204,7 +176,7 @@ if __name__ == '__main__':
                     lr = 0.0001
                     b_size = 32
                 elif dset_sz <= 500:
-                    lr = args.lr
+                    lr = 0.0012
                     b_size = 32
                 else:
                     lr = 0.001
@@ -225,22 +197,22 @@ if __name__ == '__main__':
 
             print("LR=",lr)
 
-            ## create baseline for tuning
-            castle = CASTLE(num_train = X_DAG.shape[0], num_inputs = X_DAG.shape[1], n_hidden=int(X_DAG.shape[1]*3.2), 
-                            reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, type_output=problem_type, lr=lr, batch_size=b_size,
+            ## create baseline for injection
+            net = InjectedNet(num_inputs = X_DAG.shape[1], n_hidden=int(X_DAG.shape[1]*3.2), type_output=problem_type, 
+                            reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, lr=lr, batch_size=b_size,
                             w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
-            castle.fit(X=X_DAG, y=y_DAG, num_nodes=np.shape(X_DAG)[1], X_val=X_test, y_val=y_test,
-                    overwrite=force_refit, tune=False, maxed_adj=None, tuned=False, verbose=False)
+            net.fit(X=X_DAG, y=y_DAG, num_nodes=X_DAG.shape[1], X_val=X_test, y_val=y_test,
+                    overwrite=force_refit, inject=False, injected=False, verbose=False)
 
-            W_est = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
+            W_est = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
             save_pickle(W_est, os.path.join(folder,f"adjmats/W_est.{dset_sz}.{out_fold}.{version}.pkl"), verbose=False)
 
-            ## Evaluate results
+            ## Evaluate baseline
             if problem_type == 'class':
-                preds = np.where(castle.pred(X_test) > 0.5, 1, 0).flatten() 
+                preds = np.where(net.pred(X_test) > 0.5, 1, 0).flatten() 
                 accuracy = classification_report(y_test, preds, digits = 3,output_dict=True)['accuracy']
 
-                base_score = roc_auc_score(y_test, castle.pred(X_test))
+                base_score = roc_auc_score(y_test, net.pred(X_test))
 
                 if verbose:
                     print(classification_report(y_test, preds, digits = 3))
@@ -248,7 +220,7 @@ if __name__ == '__main__':
                     print('AUC =',round(base_score,3))
 
             else:
-                base_score = mean_squared_error(castle.pred(X_test), y_test)
+                base_score = mean_squared_error(net.pred(X_test), y_test)
 
             with open(args.output_log, "a") as logfile:
                 logfile.write(str(dset_sz) + ",  baseliine" ",  "+
@@ -267,7 +239,7 @@ if __name__ == '__main__':
                 for item in known_edges:
                     loaded_adj[item[1],item[0]]=0            
             elif DAG_inject not in ['toy','random']:
-                loaded_adj = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
+                loaded_adj = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
 
             
             ## Create list of thetas by binning, if not provided
@@ -291,11 +263,10 @@ if __name__ == '__main__':
                         thetas =  list(np.round(np.arange(theta_min, theta_max, theta_inter),3)) 
                 else:
                     raise ValueError("A theta interval or specific value(s) must be provided")
-            # print('thetas to do:', len(thetas))
 
             pbar3 = tqdm(enumerate(thetas), leave=None)
 
-            REG_castle = []
+            REG_net = []
             for n_t, theta in pbar3:
                 fold = 0
                 # print(n_t, theta)
@@ -331,7 +302,6 @@ if __name__ == '__main__':
                 pbar4 = tqdm(kf_splits, leave=None)
 
                 for train_idx, val_idx in pbar4:
-                    # castle.__del__()
                     
                     score = {}
                     fold += 1
@@ -349,14 +319,6 @@ if __name__ == '__main__':
                     X_val = X_DAG[val_idx]
                     y_val = X_DAG[val_idx][:,0]
 
-                    # if any(i in version for i in ['fico']):
-                    #     lr = 0.0005
-                    #     b_size = 32
-                    # else:
-                    #     lr = 0.001
-                    #     b_size = 32
-
-
                     if 'refine' in version:
                         DAG_mat_0 = DAG_retreive_np(loaded_adj, theta)
                         loaded_adj = refine_mat(df, DAG_mat_0, version)
@@ -364,31 +326,36 @@ if __name__ == '__main__':
                     ## Fit Network, with or without injection
                     start = datetime.datetime.now()
                     if theta >= 0:
-                        castle.__del__()
-                        castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
-                                        reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,  type_output=problem_type, lr=lr, batch_size=b_size,
-                                            w_threshold = theta, ckpt_file = ckpt_file, tune = True, hypertrain = True, adj_mat=loaded_adj)
-                        castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
-                                overwrite=force_refit, tuned=False, tune=True, maxed_adj=loaded_adj, verbose=verbose)
+                        net.__del__()
+                        net = InjectedNet(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
+                                        reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,  type_output=problem_type, 
+                                        lr=lr, batch_size=b_size, w_threshold = theta, ckpt_file = ckpt_file, 
+                                        inject = True, adj_mat=loaded_adj)
+                        net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
+                                overwrite=force_refit, injected=False, inject=True, maxed_adj=loaded_adj, verbose=verbose)
                     else:
-                        castle = CASTLE(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
-                                        reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,  type_output=problem_type, lr=lr, batch_size=b_size,
-                                            w_threshold = theta, ckpt_file = args.ckpt_file)
-                        castle.fit(X=X_train, y=y_train, num_nodes=np.shape(X_train)[1], X_val=X_val, y_val=y_val,
-                                overwrite=force_refit, tune=False, maxed_adj=None, tuned=False, verbose=verbose)
+                        net = InjectedNet(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
+                                        reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,  type_output=problem_type, 
+                                        lr=lr, batch_size=b_size, w_threshold = theta, ckpt_file = args.ckpt_file)
+                        net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
+                                overwrite=force_refit, injected=False, inject=False, verbose=verbose)
                     ct = datetime.datetime.now() - start
 
-                    W_est = castle.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
+                    W_est = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
                     save_pickle(W_est, os.path.join(folder, f"adjmats/W_est.{dset_sz}.{out_fold}.{fold}.{str(theta)}.{version}.pkl"), verbose=False)
-                    # heat_mat(W_est)
 
+                    ######################################
+                    ############ Evaluation ##############
+                    ######################################
+
+                    ## Predictive Performance
                     if problem_type == 'class':
 
-                        base_score = roc_auc_score(y_test, castle.pred(X_test))
-                        REG_castle.append(base_score)
+                        base_score = roc_auc_score(y_test, net.pred(X_test))
+                        REG_net.append(base_score)
                         score["auc"] = base_score
 
-                        preds = np.where(castle.pred(X_test) > 0.5, 1, 0).flatten() 
+                        preds = np.where(net.pred(X_test) > 0.5, 1, 0).flatten() 
                         score['report'] = classification_report(y_test, preds, digits = 3,output_dict=True)
                         score["accuracy"] = classification_report(y_test, preds, digits = 3,output_dict=True)['accuracy']
                         score['f1'] = classification_report(y_test, preds, digits = 3,output_dict=True)['weighted avg']['f1-score']
@@ -398,29 +365,19 @@ if __name__ == '__main__':
                             print('Accuracy =',round(classification_report(y_test, preds, digits = 3,output_dict=True)['accuracy'],3))
                             print('AUC =',round(base_score,3))
 
-                        # for std_val in [1,2,3]:
-                        #     X_test_sub = X_test[np.where((X_test[:,0] < -std_val) | (X_test[:,0] > std_val))]
-                        #     y_test_sub = y_test[np.where((y_test < -std_val) | (y_test >std_val))]
-                        #     preds = np.where(castle.pred(X_test_sub) > 0.5, 1, 0).flatten() 
-
-                        #     if len(y_test_sub) > 0 :
-                        #         score[f"accuracy_std_{std_val}"] = classification_report(y_test_sub, preds, digits = 3,output_dict=True)['accuracy']
-                        #     else:
-                        #         score[f"accuracy_std_{std_val}"] = NaN
-                        #     score[f"Test_size_{std_val}"] = X_test_sub.shape[0]
                     else:                    
-                        REG_castle.append(mean_squared_error(castle.pred(X_test), y_test))
+                        REG_net.append(mean_squared_error(net.pred(X_test), y_test))
                         if verbose:
-                            print("MSE = ", mean_squared_error(castle.pred(X_test), y_test))
+                            print("MSE = ", mean_squared_error(net.pred(X_test), y_test))
                             if fold > 1:
-                                print("MEAN =", np.mean(REG_castle), "STD =", np.std(REG_castle))
-                        score["MSE"] = mean_squared_error(castle.pred(X_test), y_test)
+                                print("MEAN =", np.mean(REG_net), "STD =", np.std(REG_net))
+                        score["MSE"] = mean_squared_error(net.pred(X_test), y_test)
 
                         for std_val in [1,2,3]:
                             X_test_sub = X_test[np.where((X_test[:,0] < -std_val) | (X_test[:,0] > std_val))]
                             y_test_sub = y_test[np.where((y_test < -std_val) | (y_test >std_val))]
                             if len(y_test_sub) > 0 :
-                                score[f"MSE_std_{std_val}"] = mean_squared_error(castle.pred(X_test_sub), y_test_sub)
+                                score[f"MSE_std_{std_val}"] = mean_squared_error(net.pred(X_test_sub), y_test_sub)
                             else:
                                 score[f"MSE_std_{std_val}"] = NaN
                             score[f"Test_size_{std_val}"] = X_test_sub.shape[0]
@@ -430,33 +387,6 @@ if __name__ == '__main__':
                     score["Test_size"] = X_test.shape
                     score["theta"] = theta
                     score["fold"] = fold
-
-                    ## Evaluate concordance to known DAG
-                    if dag_type in ['toy', 'random']:
-                        G1 = nx.from_numpy_matrix(W_est, create_using=nx.DiGraph, parallel_edges=False)
-                        a = set(G.edges())
-                        b = set(G1.edges())
-
-                        import math
-                        penalty_mis = -1
-                        penalty_add = -1
-                        penalty_dir = -1
-
-                        n=G.number_of_nodes()
-                        r=2
-                        n_perm = math.factorial(n)/math.factorial(n-r)
-                        if verbose:    
-                            print("Equal sets:",a==b)
-                            print("intersection:",a.intersection(b)   )
-                            print("union:",a.union(b)        )
-                            print("unequal:",a.union(b)  - a.intersection(b))   
-                            print("Missing:",len(a-a.intersection(b)))
-                            print("Added:",len(b-a.intersection(b)))
-
-                        score["Missing edges"] = len(a-a.intersection(b))
-                        score["Added edges"] = len(b-a.intersection(b))
-
-                        score["DAG score"] = (n_perm + len(a-a.intersection(b))*penalty_mis + len(b-a.intersection(b))*penalty_add)/n_perm
 
                     # result_metrics_dict["dset=",dset_sz,"theta="+str(theta)+", fold="+str(fold)] = score
                     result_metrics_dict["out_fold="+str(out_fold)+", theta="+str(theta)+", fold="+str(fold)] = score
@@ -470,7 +400,7 @@ if __name__ == '__main__':
                     return "${0:.6f}".format(round(mean,6)) + "  ({0:.6f})$    ".format(round(std,6))
                 with open(args.output_log, "a") as logfile:
                     logfile.write(str(dset_sz) + ",  " + str(theta)  + ",  "+
-                                format_str(np.mean(REG_castle), np.std(REG_castle)) + 
+                                format_str(np.mean(REG_net), np.std(REG_net)) + 
                                 '\n')
                 if verbose:    
-                    print("MEAN =", np.mean(REG_castle), "STD =", np.std(REG_castle)) 
+                    print("MEAN =", np.mean(REG_net), "STD =", np.std(REG_net)) 
