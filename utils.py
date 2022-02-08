@@ -450,7 +450,9 @@ def heat_mat(mat, names=None, colour="#003E74"):
     return display(x) 
 
 
-def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None):
+def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None, 
+            target='target', prime_causes=['age','sex','native-country','race'],
+            output_folder='figures',name='DAG',version='test'):
     if type(mat) is np.ndarray:
         G1 = nx.from_numpy_matrix(mat, create_using=nx.DiGraph, parallel_edges=False)
     elif isinstance(mat, nx.classes.digraph.DiGraph):
@@ -481,13 +483,30 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None):
         G1 = nx.relabel_nodes(G1, mapping)
         
         g.from_nx(G1)
-        g.prep_notebook()
-
+        # g.prep_notebook()
+        
+        ancestors_tar = nx.ancestors(G1, target)
         for n in g.nodes:
-            n.update({'physics': False})
+            if debug:
+                print(n)
+            n.update({'physics': False, 'color':'#d8d8d8'})
+            if n['id'] == target:
+                n.update({'color':'#0085CA'})
+            if n['id'] in ancestors_tar:
+                n.update({'color':'#379f9f'})
+        for e in g.edges:
+            if debug:
+                print(e)
+            if e['to'] in prime_causes:
+                e.update({'color':'#9454c4'})
+
+        if not os.path.exists(output_folder):
+            os.mkdir(output_folder)
+
+        out_path = os.path.join(output_folder,f"plot_{name}_{version}.html")                
         from IPython.display import HTML
-        HTML(g.write_html("a.html"))  
-        return g.show("a.html")
+        HTML(g.write_html(out_path))  
+        return g.show(out_path)
     
         
     elif graphic_type=="nx":
@@ -538,173 +557,175 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None):
         return G2
 
 
-def plot_ly_by(df, 
+def plot_ly_by_compare_auto(df, 
+        names_list,
         x, x_desc, 
         y1='right', y1_desc="Reconstruction Accuracy", 
+        margin_list = [10, 10, 0, 10, 0],
         y1_range=[-0.8, 1], y1_ticks=[0,0.2,0.4,0.6,0.8,1], y1_vis=True,
         y2='MSEmean', y2_desc="Mean Squared Error",
-        margin_list = [10, 10, 0, 10, 0],
-        y2_range= [0, 1.8], y2_ticks=[0,0.2,0.5,0.8], y2_vis=True,
+        y2_range= [0, 1.8], y2_ticks=[0,0.2,0.4,0.6,0.8], y2_vis=True,
         showleg = True,
         legend_cord = [0.8,1.05],
-        save=False, name='',version='', xwidth = 600,
+        comparison_lines_width = 180, baseline=None, injection_levels=[20],
+        xwidth = 1100,
+        save=False, name='',version='', output_folder='figures',
         main_gray = '#262626',
         sec_gray = '#595959',
         main_blue = '#005383',
-        sec_blue = '#0085CA'):
+        sec_blue = '#0085CA',
+        main_green = '#379f9f', 
+        sec_green = '#196363', 
+        colors_list = None,
+        display_tab = False,
+        debug=False
+       ):
+
+    if colors_list == None:
+        if len(names_list) == 3:
+            colors_list = [sec_green,sec_gray,main_gray,main_blue,sec_blue,main_green]
+        elif len(names_list) == 2:
+            colors_list = [sec_gray,main_gray,main_blue,sec_blue]
+        elif len(names_list) == 1:
+            colors_list = [main_gray,main_blue]
+
     df = df.sort_values(by=[x],axis=0)
     # df=df[['Type', 'N_nodes','alpha', 'MSE', 'MAE','right']]
-    mses = df.groupby(['Type',x], as_index=False).agg([ 'count','mean','std']).round(2).reset_index()
+    mses = df.groupby(['Type','V',x], as_index=False).agg([ 'count','mean','std']).round(2).reset_index()
     mses.columns = list(map(''.join, mses.columns.values))
     mses['text'] = mses[['MSEmean','MSEstd']].apply(lambda x : '{} ({})'.format(x[0],x[1]), axis=1)
     mses[x] = mses[x].astype(str)
-    display(mses)
+
+    print(np.unique(df['V']))
+
+    if display_tab:
+        display(mses)
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    msesC = mses[mses['Type']==-1]
-    fig.add_trace(
-        go.Bar(x=msesC[x], y=msesC[y2], name="CASTLEMSE",
-        marker_color=main_gray,#'#FF4136', 
-        marker_line_color=main_gray,#rgb(8,48,107)',
-                    marker_line_width=2, opacity=0.6,
-        # error_y=dict(
-        #         type='data', # value of error bar given in data coordinates
-        #         array=msesC['MSEstd'],
-        #         visible=True,
-        #         color='Black',
-        #         thickness=1.5,
-        #         width=3),
-        showlegend=False,
-            text=msesC['text'],
-            textposition='auto',
-                    ),
-        secondary_y=True,
-    )
-    msesI = mses[mses['Type']==0.05]
-    fig.add_trace(
-        go.Bar(x=msesI[x], y=msesI[y2], name="InjectedMSE",
-        marker_color=main_blue,#'#0085CA',#'#3D9970', 
-        marker_line_color=main_blue,#'#0085CA',#'White',
-                    marker_line_width=2, opacity=0.6,
-        # error_y=dict(
-        #         type='data', # value of error bar given in data coordinates
-        #         array=msesI['MSEstd'],
-        #         visible=True,
-        #         color='Black',
-        #         thickness=1.5,
-        #         width=3),
-        showlegend=False,
-            text=msesI['text'],
-            textposition='inside',
-                    ),
-        secondary_y=True,
-    )
 
-    fig.add_trace(go.Box(
-        y=df[df['Type']==-1][y1],
-        x=df[df['Type']==-1][x].astype(str),
-        boxmean='sd', # represent mean
-        boxpoints=False,#'outliers',
-        name='CASTLE+',
-        marker_color=main_gray#'#FF4136'
-    ),
-        secondary_y=False,)
+    ########## BarCharts
+    if baseline == None:
+        for n, _ in enumerate(names_list):
+            idx = len(names_list) - n - 1
+            msesC = mses[(mses['Type']==-1) & (mses['V']==names_list[idx])]
+            fig.add_trace(
+                go.Bar(x=msesC[x], y=msesC[y2], name="CASTLEMSE",
+                marker_color=colors_list[n],
+                marker_line_color=colors_list[n],
+                            marker_line_width=2, opacity=0.6,
+                showlegend=False,
+                    text=msesC['text'],
+                    textposition='auto',
+                            ),
+                secondary_y=True,
+            )
+    else:
+        msesC = mses[(mses['Type']==-1) & (mses['V']==baseline)]
+        fig.add_trace(
+            go.Bar(x=msesC[x], y=msesC[y2], name="CASTLEMSE",
+            marker_color=colors_list[0],
+            marker_line_color=colors_list[0],
+                        marker_line_width=2, opacity=0.6,
+            showlegend=False,
+                text=msesC['text'],
+                textposition='auto',
+                        ),
+            secondary_y=True,
+        )        
+    
+    for n, _ in enumerate(names_list):
+        if baseline == None:
+            idx = n + len(names_list)
+        else:
+            idx = n + 1
+        msesI = mses[(mses['Type']==0.05) & (mses['V']==names_list[n])]
+        fig.add_trace(
+            go.Bar(x=msesI[x], y=msesI[y2], name="InjectedMSE",
+            marker_color=colors_list[idx],
+            marker_line_color=colors_list[idx],
+                        marker_line_width=2, opacity=0.6,
+            showlegend=False,
+                text=msesI['text'],
+                textposition='inside',
+                        ),
+            secondary_y=True,
+        )
+
+    ########## Boxplots
+    if baseline == None:
+        for n, _ in enumerate(names_list):
+            idx = len(names_list) - n - 1
+            fig.add_trace(go.Box(
+                y=df[(df['Type']==-1) & (df['V']==names_list[idx])][y1],
+                x=df[(df['Type']==-1) & (df['V']==names_list[idx])][x].astype(str),
+                boxmean='sd', # represent mean
+                boxpoints=False,#'outliers',
+                name='CASTLE+ '+names_list[idx],
+                marker_color= colors_list[n]
+            ), secondary_y=False,)
+    else:
+        fig.add_trace(go.Box(
+            y=df[(df['Type']==-1) & (df['V']==baseline)][y1],
+            x=df[(df['Type']==-1) & (df['V']==baseline)][x].astype(str),
+            boxmean='sd', # represent mean
+            boxpoints=False,#'outliers',
+            name='CASTLE+',
+            marker_color= colors_list[0]
+        ), secondary_y=False,)
+        
+    for n, _ in enumerate(names_list):
+        if baseline == None:
+            idx = n + len(names_list)
+        else:
+            idx = n + 1
+        fig.add_trace(go.Box(
+            y=df[(df['Type']==0.05) & (df['V']==names_list[n])][y1],
+            x=df[(df['Type']==0.05) & (df['V']==names_list[n])][x].astype(str),
+            boxmean='sd', # represent mean
+            boxpoints=False,#'outliers',
+            name='Injected '+names_list[n],
+            marker_color=colors_list[idx]#'#0085CA'#'#3D9970'
+        ), secondary_y=False,)
 
     if y1=='right':
-        d = msesC['rebasedmean']#[i*1.2 for i in msesC['rightmean']]
 
-        fig.add_trace(
-            go.Scatter(x=msesC[x], y=d, name="CASTLE+20%" , mode='markers', marker_symbol='line-ew',
-                    marker=dict(
-                    color='Black',
-                    size=50,
-                    line=dict(
-                        color='Black',
-                        width=2)
-                        ),
-                    showlegend=False),
-            secondary_y=False, 
-        )
-
-    fig.add_trace(go.Box(
-        y=df[df['Type']==0.05][y1],
-        x=df[df['Type']==0.05][x].astype(str),
-        boxmean='sd', # represent mean
-        boxpoints=False,#'outliers',
-        name='Injected',
-        marker_color=main_blue#'#0085CA'#'#3D9970'
-    ),
-        secondary_y=False,)
-    fig.update_layout(
-        # yaxis_title='normalized moisture',
-        boxmode='group' # group together boxes of the different traces for each value of x
-    )
-
-    if xwidth == 600:
-        x1shift=-330
-        x2shift=270
-    elif xwidth == 1100:
-        x1shift=-580
-        x2shift=480
-    else:
-        x1shift = -xwidth*0.53       
-        x2shift = xwidth*0.42       
-
-    if not y1_vis:
-        y1_desc = ''
-    else:
-        fig.add_annotation(
-                # Don't specify y position, because yanchor="middle" should do it
-                yshift=150,
-                xshift=x1shift,
-                align="left",
-                valign="top",
-                text=y1_desc,
-                showarrow=False,
-                xref="paper",
-                yref="paper",
-                xanchor="left",
-                yanchor="top",
-                # Parameter textangle allow you to rotate annotation how you want
-                textangle=-90
+        for group, color in zip(range(1,len(names_list)+1),range(len(names_list)-1,-1,-1)):
+            idx = group-1 
+            if debug:
+                print(idx,group)
+            if len(injection_levels) > 1:
+                msesC = mses[(mses['Type']==-1) & (mses['V']==baseline)]
+                d = msesC[f'rebased{injection_levels[idx]}mean']
+                color = group
+                if debug:
+                    print(idx,group, names_list[idx],injection_levels[idx])
+                trname = f"CASTLE+{injection_levels[idx]}%"
+                lines_width = comparison_lines_width
+            else:
+                trname = f"CASTLE+{injection_levels[0]}%"
+                msesC = mses[(mses['Type']==-1) & (mses['V']==names_list[idx])]
+                d = msesC['rebasedmean']
+                if len(np.unique(msesC[x]))>0:
+                    len_x_axis= len(np.unique(msesC[x]))
+                else:
+                    len_x_axis= 1
+                lines_width = group*comparison_lines_width/len_x_axis
+                if debug:
+                    print(group,lines_width,len_x_axis)
+            fig.add_trace(
+                go.Scatter(x=msesC[x], y=d, name= trname, mode='markers', marker_symbol='line-ew',
+                        marker=dict(
+                        color=colors_list[color],
+                        size=lines_width,
+                        line=dict(
+                            color=colors_list[color],
+                            width=2)
+                            ),
+                        showlegend=False),
+                secondary_y=False, 
             )
-    if not y2_vis:
-        y2_desc = ''
-    else:
-        fig.add_annotation(
-            # Don't specify y position, because yanchor="middle" should do it
-            yshift=10,
-            xshift=x2shift,
-            align="left",
-            valign="top",
-            text=y2_desc,
-            showarrow=False,
-            xref="paper",
-            yref="paper",
-            xanchor="left",
-            yanchor="top",
-            # Parameter textangle allow you to rotate annotation how you want
-            textangle=-90
-        )
-    # Set x-axis title
-    fig.update_xaxes(showgrid=True,
-    title={'text':x_desc#,'font':{'size':18}
-    })
-    # Set y-axes titles
-    fig.update_yaxes(showgrid=True,nticks=10,zeroline=True, title={'text':""}, 
-    range=y1_range,
-    tickvals=y1_ticks,
-    tickformat=".0%",
-    secondary_y=False,
-    showticklabels=y1_vis
-    )
-    fig.update_yaxes(showgrid=True,nticks=10,zeroline=True, title={'text':""},
-    range=y2_range,
-    tickvals=y2_ticks,
-    secondary_y=True,
-    showticklabels=y2_vis)
 
-    # Add figure title
+
     fig.update_layout(
         showlegend=showleg,
         title='',
@@ -730,230 +751,10 @@ def plot_ly_by(df,
             family='Serif',#"Courier New, monospace",
             size=18,
             color="Black"
-        )    
-    )
-
-    if save:
-        output_folder = "figures"
-        if not os.path.exists(output_folder):
-            os.mkdir(output_folder)
-
-        out_path = os.path.join(output_folder,f"plot_{name}_{version}.png")
-
-        import kaleido
-        fig.write_image(out_path)
-
-    fig.show()
-
-def plot_ly_by_compare(df, 
-        x, x_desc, 
-        y1='right', y1_desc="Reconstruction Accuracy", 
-        margin_list = [10, 10, 0, 10, 0],
-        y1_range=[-0.8, 1], y1_ticks=[0,0.2,0.4,0.6,0.8,1], y1_vis=True,
-        y2='MSEmean', y2_desc="Mean Squared Error",
-        y2_range= [0, 1.8], y2_ticks=[0,0.2,0.4,0.6,0.8], y2_vis=True,
-        showleg = True,
-        legend_cord = [0.8,1.05],
-        save=False, name='',version='', xwidth = 1100,
-        main_gray = '#262626',
-        sec_gray = '#595959',
-        main_blue = '#005383',
-        sec_blue = '#0085CA',
-        names_list = ['CASTLE+ w/noise','CASTLE+','Injected','Injected w/noise']
-       ):
-    colors_list = [sec_gray,main_gray,main_blue,sec_blue]
-
-    df = df.sort_values(by=[x],axis=0)
-    # df=df[['Type', 'N_nodes','alpha', 'MSE', 'MAE','right']]
-    mses = df.groupby(['Type','V',x], as_index=False).agg([ 'count','mean','std']).round(2).reset_index()
-    mses.columns = list(map(''.join, mses.columns.values))
-    mses['text'] = mses[['MSEmean','MSEstd']].apply(lambda x : '{} ({})'.format(x[0],x[1]), axis=1)
-    mses[x] = mses[x].astype(str)
-
-    print(np.unique(df['V']))
-    display(mses)
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-    ########## BarCharts
-    msesC = mses[(mses['Type']==-1) & (mses['V']==np.unique(mses['V'])[1])]
-    fig.add_trace(
-        go.Bar(x=msesC[x], y=msesC[y2], name="CASTLEMSE",
-        marker_color=colors_list[0],#'#FF4136', 
-        marker_line_color=colors_list[0],#rgb(8,48,107)',
-                    marker_line_width=2, opacity=0.6,
-        # error_y=dict(
-        #         type='data', # value of error bar given in data coordinates
-        #         array=msesC['MSEstd'],
-        #         visible=True,
-        #         color='Black',
-        #         thickness=1.5,
-        #         width=3),
-        showlegend=False,
-            text=msesC['text'],
-            textposition='auto',
-                    ),
-        secondary_y=True,
-    )
-    msesC = mses[(mses['Type']==-1) & (mses['V']==np.unique(mses['V'])[0])]
-    fig.add_trace(
-        go.Bar(x=msesC[x], y=msesC[y2], name="CASTLEMSE",
-        marker_color=colors_list[1],#'#FF4136', 
-        marker_line_color=colors_list[1],#rgb(8,48,107)',
-                    marker_line_width=2, opacity=0.6,
-        # error_y=dict(
-        #         type='data', # value of error bar given in data coordinates
-        #         array=msesC['MSEstd'],
-        #         visible=True,
-        #         color='Black',
-        #         thickness=1.5,
-        #         width=3),
-        showlegend=False,
-            text=msesC['text'],
-            textposition='auto',
-                    ),
-        secondary_y=True,
-    )
-
-
-    msesI = mses[(mses['Type']==0.05) & (mses['V']==np.unique(mses['V'])[0])]
-    fig.add_trace(
-        go.Bar(x=msesI[x], y=msesI[y2], name="InjectedMSE",
-        marker_color=colors_list[2],#'#0085CA',#'#3D9970', 
-        marker_line_color=colors_list[2],#'#0085CA',#'White',
-                    marker_line_width=2, opacity=0.6,
-        # error_y=dict(
-        #         type='data', # value of error bar given in data coordinates
-        #         array=msesI['MSEstd'],
-        #         visible=True,
-        #         color='Black',
-        #         thickness=1.5,
-        #         width=3),
-        showlegend=False,
-            text=msesI['text'],
-            textposition='inside',
-                    ),
-        secondary_y=True,
-    )
-    msesI = mses[(mses['Type']==0.05) & (mses['V']==np.unique(mses['V'])[1])]
-    fig.add_trace(
-        go.Bar(x=msesI[x], y=msesI[y2], name="InjectedMSE",
-        marker_color=colors_list[3],#'#0085CA',#'#3D9970', 
-        marker_line_color=colors_list[3],#'#0085CA',#'White',
-                    marker_line_width=2, opacity=0.6,
-        # error_y=dict(
-        #         type='data', # value of error bar given in data coordinates
-        #         array=msesI['MSEstd'],
-        #         visible=True,
-        #         color='Black',
-        #         thickness=1.5,
-        #         width=3),
-        showlegend=False,
-            text=msesI['text'],
-            textposition='inside',
-                    ),
-        secondary_y=True,
-    )
-
-
-    ########## Boxplots
-    fig.add_trace(go.Box(
-        y=df[(df['Type']==-1) & (df['V']==np.unique(df['V'])[1])][y1],
-        x=df[(df['Type']==-1) & (df['V']==np.unique(df['V'])[1])][x].astype(str),
-        boxmean='sd', # represent mean
-        boxpoints=False,#'outliers',
-        name=names_list[0],
-        marker_color= colors_list[0]
-    ),
-    secondary_y=False,)
-    fig.add_trace(go.Box(
-        y=df[(df['Type']==-1) & (df['V']==np.unique(df['V'])[0])][y1],
-        x=df[(df['Type']==-1) & (df['V']==np.unique(df['V'])[0])][x].astype(str),
-        boxmean='sd', # represent mean
-        boxpoints=False,#'outliers',
-        name=names_list[1],
-        marker_color=colors_list[1]#'#FF4136'
-    ),
-        secondary_y=False,)
-
-
-    if y1=='right':
-
-        msesC = mses[(mses['Type']==-1) & (mses['V']==np.unique(mses['V'])[0])]
-        d = msesC['rebasedmean']#[i*1.2 for i in msesC['rightmean']]
-
-        fig.add_trace(
-            go.Scatter(x=msesC[x], y=d, name="CASTLE+20%" , mode='markers', marker_symbol='line-ew',
-                    marker=dict(
-                    color='Black',
-                    size=50,
-                    line=dict(
-                        color='Black',
-                        width=2)
-                        ),
-                    showlegend=False),
-            secondary_y=False, 
-        )
-
-
-        msesC = mses[(mses['Type']==-1) & (mses['V']==np.unique(mses['V'])[1])]
-        d = msesC['rebasedmean']#[i*1.2 for i in msesC['rightmean']]
-
-        fig.add_trace(
-            go.Scatter(x=msesC[x], y=d, name="CASTLE+20%" , mode='markers', marker_symbol='line-ew',
-                    marker=dict(
-                    color='Black',
-                    size=100,
-                    line=dict(
-                        color='Black',
-                        width=2)
-                        ),
-                    showlegend=False),
-            secondary_y=False, 
-        )
-
-    fig.add_trace(go.Box(
-        y=df[(df['Type']==0.05) & (df['V']==np.unique(df['V'])[0])][y1],
-        x=df[(df['Type']==0.05) & (df['V']==np.unique(df['V'])[0])][x].astype(str),
-        boxmean='sd', # represent mean
-        boxpoints=False,#'outliers',
-        name=names_list[2],
-        marker_color=colors_list[2]#'#0085CA'#'#3D9970'
-    ),
-        secondary_y=False,)
-    fig.add_trace(go.Box(
-        y=df[(df['Type']==0.05) & (df['V']==np.unique(df['V'])[1])][y1],
-        x=df[(df['Type']==0.05) & (df['V']==np.unique(df['V'])[1])][x].astype(str),
-        boxmean='sd', # represent mean
-        boxpoints=False,#'outliers',
-        name=names_list[3],
-        marker_color= colors_list[3]
-    ),
-        secondary_y=False,)
-
-
-    if y1=='right':
-        d = msesC['rebasedmean']#[i*1.2 for i in msesC['rightmean']]
-
-        fig.add_trace(
-            go.Scatter(x=msesC[x], y=d, name="CASTLE+20%" , mode='markers', marker_symbol='line-ew',
-                    marker=dict(
-                    color='Black',
-                    size=50,
-                    line=dict(
-                        color='Black',
-                        width=2)
-                        ),
-                    showlegend=False),
-            secondary_y=False, 
-        )
-
-
-    fig.update_layout(
-        # yaxis_title='normalized moisture',
-        boxmode='group' # group together boxes of the different traces for each value of x
-        ,bargap=0.1
-        ,bargroupgap=0.1
+        ),    
+        boxmode='group',
+        bargap=0.1,
+        bargroupgap=0.1
     )
 
     if xwidth == 600:
@@ -962,6 +763,9 @@ def plot_ly_by_compare(df,
     elif xwidth == 1100:
         x1shift=-580
         x2shift=480
+    elif xwidth == 1200:
+        x1shift=-xwidth*0.525 
+        x2shift=xwidth*0.436
     else:
         x1shift = -xwidth*0.53       
         x2shift = xwidth*0.42            
@@ -1022,37 +826,7 @@ def plot_ly_by_compare(df,
     secondary_y=True,
     showticklabels=y2_vis)
 
-    # Add figure title
-    fig.update_layout(
-        showlegend=showleg,
-        title='',
-        legend={
-            'y':legend_cord[1],
-            'x':legend_cord[0],
-            # 'y':-0.08,
-            # 'x':0.92,
-            'orientation':"h",
-            'xanchor': 'center',
-            'yanchor': 'top'},
-        template='plotly_white',
-        autosize=True,
-        width=xwidth, height=350, 
-        margin=dict(
-            l=margin_list[0],
-            r=margin_list[1],
-            b=margin_list[2],
-            t=margin_list[3],
-            pad=margin_list[4],
-        ),
-        font=dict(
-            family='Serif',#"Courier New, monospace",
-            size=18,
-            color="Black"
-        )    
-    )
-
     if save:
-        output_folder = "figures"
         if not os.path.exists(output_folder):
             os.mkdir(output_folder)
 
