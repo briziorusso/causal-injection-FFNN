@@ -550,6 +550,74 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None,
         print("\nBlack Arrow = Edge in the original DAG,\nRed Arrow = Missing Edge, Blue Arrow = Additional Edge ")
         return G2
 
+def plot_ly_lines(
+    agg_stats,
+    metric
+):
+
+    # Create figure with secondary y-axis
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    if metric == 'accuracy':
+        metric =metric.capitalize()
+    else:
+        metric = metric.upper()
+
+    # Add traces
+    fig.add_trace(
+        go.Scatter(x=agg_stats['theta'], y=agg_stats['accuracy_mean'], name=metric,         
+        error_y=dict(
+                type='data', # value of error bar given in data coordinates
+                array=agg_stats['accuracy_std'],
+                visible=True)
+                ),
+        secondary_y=True, 
+    )
+
+    fig.add_trace(
+        go.Scatter(x=agg_stats['theta'], y=agg_stats['N_edges'], name="Edges",
+        error_y=dict(
+                type='data', # value of error bar given in data coordinates
+                array=agg_stats['Std'],
+                visible=True)
+                ),
+        secondary_y=False,
+    )
+
+    # Add figure title
+    fig.update_layout(
+        title='',
+        legend={
+            'y':-0.35,
+            'x':0.85,
+            'orientation':"h",
+            'xanchor': 'center',
+            'yanchor': 'bottom'},
+        template='plotly_white',
+        autosize=True,
+        width=600, height=250, 
+        margin=dict(
+            l=10,
+            r=10,
+            b=0,
+            t=10,
+            pad=0
+        ),
+        font=dict(
+            family='Serif',#"Courier New, monospace",
+            size=18,
+            # color="Black"
+        )    
+    )
+
+    # Set y-axes titles
+    fig.update_yaxes(showgrid=False,nticks=6,zeroline=False, title={'text':metric#,'font':{'size':18}
+    }, #nticks=13,
+    secondary_y=True)
+    fig.update_yaxes(title={'text':"Number of Edges"#,'font':{'size':18}
+    }, secondary_y=False)
+
+    return fig
 
 def plot_ly_by_compare_auto(df, 
         names_list,
