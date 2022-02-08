@@ -1,23 +1,19 @@
 ## Some of the code is taken from https://github.com/vanderschaarlab/mlforhealthlabpub/blob/main/alg/castle/CASTLE.py 
 ## Here the CASTLE class has been extended (and renamed) to perform causal discovery and injection for feed forward network 
-# beyond the regularization performed within CASTLE
+## beyond the regularization performed by CASTLE
+
+import os
+import random
+import networkx as nx
 
 import numpy as np
 np.set_printoptions(suppress=True)
-import random
+np.set_printoptions(linewidth=np.inf)
 
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
-from sklearn import preprocessing
-from sklearn.metrics import mean_squared_error
-import os
-import networkx as nx
-
 from utils import random_stability, DAG_retrieve
-
-# this allows wider numpy viewing for matrices
-np.set_printoptions(linewidth=np.inf)
 
 class InjectedNet(object): 
     def __init__(
@@ -76,6 +72,7 @@ class InjectedNet(object):
         self.hidden_layers = hidden_layers
         self.bottleneck = int(self.n_hidden/3)
         self.num_outputs = num_outputs
+
         self.X = tf.placeholder("float", [None, self.num_inputs])
         self.y = tf.placeholder("float", [None, 1])
         self.rho = tf.placeholder("float", [1, 1])
@@ -84,18 +81,16 @@ class InjectedNet(object):
         self.Lambda = tf.placeholder("float")
         self.noise = tf.placeholder("float")
         self.is_train = tf.placeholder(tf.bool, name="is_train")
-
         # One-hot vector indicating which nodes are trained
         self.sample = tf.placeholder(tf.int32, [self.num_inputs])
         
-
         # Store layers weight & bias
         self.weights = {}
         self.biases = {}
         
         # Create the input and output weight matrix for each feature
         for i in range(self.num_inputs):
-            self.weights['w_h0_'+str(i)] = tf.Variable(tf.random_normal([self.num_inputs, self.n_hidden], seed = seed)*0.01) #why make it smaller?
+            self.weights['w_h0_'+str(i)] = tf.Variable(tf.random_normal([self.num_inputs, self.n_hidden], seed = seed)*0.01)
             self.weights['out_'+str(i)] = tf.Variable(tf.random_normal([self.n_hidden, self.num_outputs], seed = seed))
             
         for i in range(self.num_inputs):
@@ -103,33 +98,20 @@ class InjectedNet(object):
             self.biases['out_'+str(i)] = tf.Variable(tf.random_normal([self.num_outputs], seed = seed))
 
 
-        # The first and second layers are shared
+        # The hidden layers are shared
         self.weights.update({'w_h1': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden]))})
         self.biases.update({'b_h1': tf.Variable(tf.random_normal([self.n_hidden]))})
 
-
         if self.hidden_layers == 2:
-            self.weights.update({
-                'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden]))
-            })
-            self.biases.update({
-                'b_h2': tf.Variable(tf.random_normal([self.n_hidden]))
-            })
+            self.weights.update({'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden]))})
+            self.biases.update({'b_h2': tf.Variable(tf.random_normal([self.n_hidden]))})
 
         if self.hidden_layers == 3:
-            self.weights.update({
-                'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.bottleneck]))
-            })
-            self.biases.update({
-                'b_h2': tf.Variable(tf.random_normal([self.bottleneck]))
-            })
+            self.weights.update({'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.bottleneck]))})
+            self.biases.update({'b_h2': tf.Variable(tf.random_normal([self.bottleneck]))})
 
-            self.weights.update({
-                'w_h3': tf.Variable(tf.random_normal([self.bottleneck, self.n_hidden]))
-            })
-            self.biases.update({
-                'b_h3': tf.Variable(tf.random_normal([self.n_hidden]))
-            })
+            self.weights.update({'w_h3': tf.Variable(tf.random_normal([self.bottleneck, self.n_hidden]))})
+            self.biases.update({'b_h3': tf.Variable(tf.random_normal([self.n_hidden]))})
 
         self.hidden_h0 = {}
         self.hidden_h1 = {}
@@ -139,7 +121,6 @@ class InjectedNet(object):
 
         self.Out_0 = []
 
-        # Mask removes the feature i from the network that is tasked to construct feature i
         self.mask = {}
         self.activation = tf.nn.relu
         self.out_activation = tf.math.sigmoid
@@ -150,6 +131,7 @@ class InjectedNet(object):
         for i in range(self.num_inputs):
             
             if inject and adj_mat is not None:
+            # Causal injection adds all non causal entres in adj_mat to the mask
                 if i==0 and verbose:
                     print("Masking non causal dependencies")
                 if tf.is_tensor(adj_mat):
@@ -161,6 +143,7 @@ class InjectedNet(object):
                     tf.one_hot(indices, depth=self.num_inputs, on_value=0.0, off_value=1.0, axis=-1)
                     ),axis=1)
             else:
+            # CASTLE mask only removes the feature i from the sub-network that is tasked to construct feature i
                 indices = [i] * self.n_hidden
                 self.mask[str(i)] = tf.transpose(
                     tf.one_hot(indices, depth=self.num_inputs, on_value=0.0, off_value=1.0, axis=-1)
@@ -175,7 +158,6 @@ class InjectedNet(object):
             self.hidden_h1['nn_' + str(i)] = self.activation(
                 tf.add(tf.matmul(self.hidden_h0['nn_' + str(i)], self.weights['w_h1']), self.biases['b_h1'])
             )
-            
             if self.hidden_layers in [2,3]:
                 self.hidden_h2['nn_'+str(i)] = self.activation(
                     tf.add(tf.matmul(self.hidden_h1['nn_'+str(i)], self.weights['w_h2']), self.biases['b_h2'])
@@ -183,9 +165,7 @@ class InjectedNet(object):
             if self.hidden_layers == 2:
                 if i == 0 and type_output != 'reg': # binary prediction for y @ df[,0] hence sigmoid activation to output probabilities
                     self.out_layer['nn_' + str(i)] = self.out_activation(
-                        tf.add(
-                            tf.matmul(self.hidden_h2['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)]
-                        )
+                        tf.add(tf.matmul(self.hidden_h2['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)])
                     )
                 else:
                     self.out_layer['nn_' + str(i)] = tf.add(
@@ -197,9 +177,7 @@ class InjectedNet(object):
                     )
                 if i == 0 and type_output != 'reg': # binary prediction for y @ df[,0] hence sigmoid activation to output probabilities
                     self.out_layer['nn_' + str(i)] = self.out_activation(
-                        tf.add(
-                            tf.matmul(self.hidden_h3['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)]
-                        )
+                        tf.add(tf.matmul(self.hidden_h3['nn_' + str(i)], self.weights['out_' + str(i)]), self.biases['out_' + str(i)])
                     )
                 else:
                     self.out_layer['nn_' + str(i)] = tf.add(
@@ -260,11 +238,11 @@ class InjectedNet(object):
         L1_loss = 0.0
         L1_alpha = 0.5
         for i in range(self.num_inputs): 
-            #             print('weigths',self.weights['w_h0_'+str(i)])
+            # print('weigths',self.weights['w_h0_'+str(i)])
             w_1 = tf.slice(self.weights['w_h0_' + str(i)], [0, 0], [i, -1])
-            #             print('w_1',w_1)
+            # print('w_1',w_1)
             w_2 = tf.slice(self.weights['w_h0_' + str(i)], [i + 1, 0], [-1, -1])
-            #             print('w_2',w_2)
+            # print('w_2',w_2)
 
             if inject and adj_mat is not None:
 
@@ -281,8 +259,9 @@ class InjectedNet(object):
                 w_2 = tf.gather(w_2,tf.cast(w_2_mask, dtype='int32'))
 
             L1_loss += tf.reduce_sum(tf.norm(w_1, axis=1)) + tf.reduce_sum(tf.norm(w_2, axis=1))
-#             L1_loss += L1_alpha*(tf.math.sqrt(tf.cast(w_1.shape[0], tf.float32))*tf.reduce_sum(tf.norm(w_1, ord=2 ))+tf.math.sqrt(tf.cast(w_2.shape[0], tf.float32))*tf.reduce_sum(tf.norm(w_2, ord=2 ))) + (1-L1_alpha)*(tf.reduce_sum(tf.norm(w_1, ord=1 ))+tf.reduce_sum(tf.norm(w_2, ord=1 )))
-#             print('L1_loss',L1_loss)
+            ## Equivalent to:
+            # L1_loss += L1_alpha*(tf.math.sqrt(tf.cast(w_1.shape[0], tf.float32))*tf.reduce_sum(tf.norm(w_1, ord=2 ))+tf.math.sqrt(tf.cast(w_2.shape[0], tf.float32))*tf.reduce_sum(tf.norm(w_2, ord=2 ))) + (1-L1_alpha)*(tf.reduce_sum(tf.norm(w_1, ord=1 ))+tf.reduce_sum(tf.norm(w_2, ord=1 )))
+            # print('L1_loss',L1_loss)
 
         # Residuals
         self.R = self.X - self.Out
@@ -291,9 +270,6 @@ class InjectedNet(object):
         _, subset_R = tf.dynamic_partition(tf.transpose(self.R), partitions=self.sample, num_partitions=2)
         subset_R = tf.transpose(subset_R)
         
-        # Minimise loss difference after tuning
-        
-
         #Combine all the loss
         ## Reconstruction loss
         self.mse_loss_subset = tf.cast(self.num_inputs, tf.float32) / tf.cast(tf.reduce_sum(
@@ -327,10 +303,6 @@ class InjectedNet(object):
         if 'sess' in self.__dict__.keys():
             self.sess.close()
             del self.sess
-
-    def gaussian_noise_layer(self, input_layer, std):
-        noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
-        return input_layer + noise
 
     def __fit__(self, X, y, num_nodes, X_val, y_val, seed = 0, verbose=True):
         from random import sample
@@ -425,7 +397,6 @@ class InjectedNet(object):
                 print("Model Loaded from ", self.tmp)
 
         elif os.path.exists(file_path) and injected:
-            # tf.reset_default_graph()
             self.tmp = self.tmp + "_injected"
 
             file_path1 = self.tmp + ".data-00000-of-00001"
@@ -519,7 +490,7 @@ class InjectedNet(object):
                 self.noise: 0
             }
         )
-        return W_est #np.round_(W_est, decimals=3)
+        return W_est
 
     def get_h(self, X):
         return self.sess.run(self.h, feed_dict={self.X: X, self.keep_prob: 1, self.is_train: False, self.noise: 0})
