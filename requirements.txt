@@ -1,0 +1,10 @@
+tensorflow
+networkx
+pandas
+numpy
+sklearn
+seaborn
+pyvis
+plotly
+kaleido
+tqdm
