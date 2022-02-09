@@ -99,18 +99,18 @@ class InjectedNet(object):
 
 
         # The hidden layers are shared
-        self.weights.update({'w_h1': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden]))})
-        self.biases.update({'b_h1': tf.Variable(tf.random_normal([self.n_hidden]))})
+        self.weights.update({'w_h1': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden], seed = seed))})
+        self.biases.update({'b_h1': tf.Variable(tf.random_normal([self.n_hidden], seed = seed))})
 
         if self.hidden_layers == 2:
-            self.weights.update({'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden]))})
-            self.biases.update({'b_h2': tf.Variable(tf.random_normal([self.n_hidden]))})
+            self.weights.update({'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden], seed = seed))})
+            self.biases.update({'b_h2': tf.Variable(tf.random_normal([self.n_hidden], seed = seed))})
 
         if self.hidden_layers == 3:
-            self.weights.update({'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.bottleneck]))})
-            self.biases.update({'b_h2': tf.Variable(tf.random_normal([self.bottleneck]))})
+            self.weights.update({'w_h2': tf.Variable(tf.random_normal([self.n_hidden, self.bottleneck], seed = seed))})
+            self.biases.update({'b_h2': tf.Variable(tf.random_normal([self.bottleneck], seed = seed))})
 
-            self.weights.update({'w_h3': tf.Variable(tf.random_normal([self.bottleneck, self.n_hidden]))})
+            self.weights.update({'w_h3': tf.Variable(tf.random_normal([self.bottleneck, self.n_hidden], seed = seed))})
             self.biases.update({'b_h3': tf.Variable(tf.random_normal([self.n_hidden]))})
 
         self.hidden_h0 = {}
