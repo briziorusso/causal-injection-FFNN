@@ -1,14 +1,15 @@
-import numpy as np
-np.set_printoptions(suppress=True)
-import networkx as nx
-import random
-import pandas as pd
-import sklearn
-import tensorflow.compat.v1 as tf
-import pickle
-import argparse
 import os
 from sys import exit
+import random
+import pickle
+import argparse
+
+import networkx as nx
+import pandas as pd
+import numpy as np
+np.set_printoptions(suppress=True)
+import tensorflow.compat.v1 as tf
+
 import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
