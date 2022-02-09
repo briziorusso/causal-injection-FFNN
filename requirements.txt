@@ -10,3 +10,4 @@ kaleido
 tqdm
 ipykernel
 nbformat
+pmlb

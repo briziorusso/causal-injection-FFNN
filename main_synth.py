@@ -66,6 +66,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     signal(SIGINT, handler)
     
+    ### Setup additional internal variables
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     folder = "./results/"
@@ -75,11 +76,8 @@ if __name__ == '__main__':
     if not os.path.exists(os.path.join("./logs/", args.version)):
         os.mkdir(os.path.join("./logs/", args.version))
 
-    ### Create list of results for the given version
-    runs_list_theta = check_run_status(args.version)
-    # args.csv = 'synth_nonlinear.csv' ## toy
-    DAG_inject = 'partial' ## One of 'full', 'toy', 'partial'
     verbose = args.verbose
+    DAG_inject = 'partial' ## One of 'full', 'toy', 'partial'
     standardise = True
 
     thetas = [-1, 0.05]
@@ -87,6 +85,8 @@ if __name__ == '__main__':
     nodes_list = [10,20,50]
     alphas = [50, 100, 200, 300, 500]
 
+    ## List of results for the given version
+    runs_list_theta = check_run_status(args.version)
     ### Loop over seeds
     pbar = tqdm(seeds_list, leave=None)
     for seed in pbar:
