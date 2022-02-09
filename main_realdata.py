@@ -31,68 +31,65 @@ print(tf.config.list_physical_devices())
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--gpu', type = str, default = '')
-    parser.add_argument('--extension', type = str, default = '')    
-    parser.add_argument('--version', type = str, default='test')
-    parser.add_argument('--output_log', type = str, default = 'test.log')
-    parser.add_argument('--ckpt_file', type = str, default = 'test.ckpt')
-    parser.add_argument('--csv', type = str )
+    ## Run arguments
+    parser.add_argument('--gpu', help='Name of GPU to use',type = str, type = str, default = '')
+    parser.add_argument('--csv', help='Name of the input csv, if available', type = str )
+    parser.add_argument('--version', help='Tags all results',type = str, default='test')
+    parser.add_argument('--output_log', help='Name of the .log file', type = str, default = 'test.log')
+    parser.add_argument('--ckpt_file', help='Name of the .ckpt file', type = str, default = 'test.ckpt')
+    parser.add_argument('--force_refit', help='Overwrite models in ckpt_file location', type=str2bool, nargs='?', const=True, default=True)    
+    parser.add_argument('--overwrite_res', help='Overwrite summary results in results location', type=str2bool, nargs='?',const=True, default=False)    
 
-    parser.add_argument("--random_dag", type=str2bool, nargs='?',
-                        const=True, default=True,
-                        help="Activate nice mode.")
-    parser.add_argument('--num_nodes', type = int, default = 20)
-    parser.add_argument('--branchf', type = float, default = 4)
-    parser.add_argument('--noise_p', type = float, default = 4)
-    parser.add_argument('--dataset_sz', type = int, default = 5000)
-    parser.add_argument('--reg_lambda', type = float, default = 1)
-    parser.add_argument('--reg_beta', type = float, default = 5)
-    parser.add_argument('--lr', type=float, default = 0.001)
+    ## Data and model
+    parser.add_argument("--random_dag", help='Bool, if True DAG is generated', type=str2bool, nargs='?',const=True, default=True)
+    parser.add_argument('--num_nodes', help='Number of nodes |V| in synthetic DAG ', type = int, default = 20)
+    parser.add_argument('--branchf', help='Proportion of edges over nodes in synthetic DAG e=|E|/|V|', type = float, default = 4)
+    parser.add_argument('--noise_p', help='Proportion of noise variables (over |V|) to add to the data', type = float, default = 0.2)
+    parser.add_argument('--known_p', help='Proportion of edges |E|) known in synthetic DAG', type = float, default = 0.2) #0.2
+    parser.add_argument('--dataset_sz', help='Sample size |N|', type = int, default = 5000)
+    parser.add_argument("--dataset_szs", help='Comma delimited list of sample sizes N', type=str, default='100000')
+    parser.add_argument('--hidden_l', help='Number of hidden layers', type = int, default = 1) 
+    parser.add_argument('--hidden_n_p', help='Multiplier (to |V|) for number of hidden neurons', type = float, default = 3.2) 
+    parser.add_argument('--reg_lambda', help='Coefficient for R_DAG loss component', type = float, default = 1)
+    parser.add_argument('--reg_beta', help='Coefficient for L1 component of R_DAG loss', type = float, default = 5)
+    parser.add_argument('--lr', help='Learning Rate', type=float, default = 0.001)
 
-    parser.add_argument('--out_folds', type = int, default = 5)
-    parser.add_argument('--in_folds', type = int, default = 5)
-    parser.add_argument("--dataset_szs", help='comma delimited list input', type=str, default='100000')
-    parser.add_argument("--thetas", help='comma delimited list input', type=str, default='')
-    parser.add_argument("--theta_range", help='comma delimited list input', type=str, default='')
-    parser.add_argument("--theta_auto", type=str2bool, nargs='?',
-                        const=True, default=True,
-                        help="Activate nice mode.")
-       
+    parser.add_argument('--seed', help='Seed to reproduce', type = int, default = 0)
+    parser.add_argument('--out_folds', help='Number of outer folds in outer folds in nested xval', type = int, default = 5)
+    parser.add_argument('--in_folds', help='Number of inner folds in outer folds in nested xval', type = int, default = 5)
+    parser.add_argument("--thetas", help='Comma delimited list of thetas (taus), leave empty for autobinning of adjmat range', type=str, default='')
+    parser.add_argument("--theta_range", help='Comma delimited list. Provide min, max, step of thetas (taus)', type=str, default='')
+    parser.add_argument("--theta_auto", help='Bool, if True DAG theta interval is created linearly', type=str2bool, nargs='?',const=True, default=True)
+    parser.add_argument("--verbose", help='Bool, if True prints debugging info', type=str2bool, nargs='?',const=True, default=False)
+
     args = parser.parse_args()
     signal(SIGINT, handler)
     
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
+    verbose = args.verbose
+    seed = args.seed
     version = args.version
+    dag_type = version.split("_")[0] ## 'toy','random', 'fico', 'adult', 'boston'. If _partial/refine are provided different settings will apply
+    DAG_inject = version.split("_")[0] ## One of 'full', 'toy', 'partial' or dataname
 
     if any(x in version for x in ['boston','cali']): 
         problem_type = 'reg' ## 'reg' or 'class' 
     elif any(x in version for x in ['fico','adult']): 
         problem_type = 'class' ## 'reg' or 'class' 
-    
-    dag_type = version.split("_")[0] ## 'toy','random', 'fico', 'adult', 'boston'
-    DAG_inject = version.split("_")[0] ## One of 'full', 'toy', 'partial', 'fico', 'fico_size'
 
     folder = './results/'
     args.ckpt_file = os.path.join("./models/",version,version+'.ckpt')
-
     args.output_log = os.path.join("./logs/", version.split("_")[0], version+'.log')
-
     if not os.path.exists(folder):
         os.mkdir(folder)
     if not os.path.exists(os.path.join("./logs/", version.split("_")[0])):
         os.mkdir(os.path.join("./logs/", version.split("_")[0])) 
 
-    force_refit = True
-    verbose = False
-    
-    seed = 0
-    known_perc = 0.2    
-
     dataset_szs = [int(item) for item in args.dataset_szs.split(',')]
-    thetas= [float(item) for item in args.thetas.split(',') if item]  ### Leave empty for automatic binning of the adj_mat
+    thetas= [float(item) for item in args.thetas.split(',') if item] 
+    theta_interval = args.theta_auto 
     theta_min_max= [float(item) for item in args.theta_range.split(',') if item]
-    theta_interval = args.theta_auto ### True: binning is based on deciles, False: fixed intervals 0.001
 
     random_stability(seed)
     if verbose:
@@ -105,6 +102,7 @@ if __name__ == '__main__':
     else:
         pbar1 = dataset_szs
 
+    ### Loop over sample sizes
     for dset_sz in pbar1:
         if len(dataset_szs) > 1:
             pbar1.set_description("Dset %s" % dset_sz)
@@ -126,6 +124,7 @@ if __name__ == '__main__':
         out_fold = 0
         pbar2 = tqdm(kf_out_splits, leave=None)
 
+    ### Loop over outer folds in nested xval
         for train_idx, val_idx in  pbar2:
             out_fold += 1
 
@@ -194,12 +193,12 @@ if __name__ == '__main__':
 
             print("LR=",lr)
 
-            ## create baseline for injection
+            ## Create baseline for injection
             net = InjectedNet(num_inputs = X_DAG.shape[1], n_hidden=int(X_DAG.shape[1]*3.2), type_output=problem_type, 
                             reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, lr=lr, batch_size=b_size,
                             w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
             net.fit(X=X_DAG, y=y_DAG, num_nodes=X_DAG.shape[1], X_val=X_test, y_val=y_test,
-                    overwrite=force_refit, inject=False, injected=False, verbose=False)
+                    overwrite=args.force_refit, inject=False, injected=False, verbose=False)
 
             W_est = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
             save_pickle(W_est, os.path.join(folder,f"adjmats/W_est.{dset_sz}.{out_fold}.{version}.pkl"), verbose=False)
@@ -228,7 +227,7 @@ if __name__ == '__main__':
             if DAG_inject in ['toy','full'] or 'size' in DAG_inject or 'partial' in version:
                 loaded_adj = load_adj_mat(df, DAG_inject, version)
             elif DAG_inject == 'partial':
-                n = int(len(G.edges())*known_perc)
+                n = int(len(G.edges())*args.known_p)
                 known_edges = random.sample(list(G.edges()), n)
                 if verbose:
                     print(len(known_edges), known_edges)
@@ -237,7 +236,6 @@ if __name__ == '__main__':
                     loaded_adj[item[1],item[0]]=0            
             elif DAG_inject not in ['toy','random']:
                 loaded_adj = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
-
             
             ## Create list of thetas by binning, if not provided
             if len(thetas) == 0:
@@ -264,6 +262,7 @@ if __name__ == '__main__':
             pbar3 = tqdm(enumerate(thetas), leave=None)
 
             REG_net = []
+    ### Loop over thetas
             for n_t, theta in pbar3:
                 fold = 0
                 # print(n_t, theta)
@@ -298,6 +297,7 @@ if __name__ == '__main__':
 
                 pbar4 = tqdm(kf_splits, leave=None)
 
+    ### Loop over inner folds of xval
                 for train_idx, val_idx in pbar4:
                     
                     score = {}
@@ -329,13 +329,13 @@ if __name__ == '__main__':
                                         lr=lr, batch_size=b_size, w_threshold = theta, ckpt_file = ckpt_file, 
                                         inject = True, adj_mat=loaded_adj)
                         net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
-                                overwrite=force_refit, injected=False, inject=True, verbose=verbose)
+                                overwrite=args.force_refit, injected=False, inject=True, verbose=verbose)
                     else:
                         net = InjectedNet(num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,  type_output=problem_type, 
                                         lr=lr, batch_size=b_size, w_threshold = theta, ckpt_file = args.ckpt_file)
                         net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
-                                overwrite=force_refit, injected=False, inject=False, verbose=verbose)
+                                overwrite=args.force_refit, injected=False, inject=False, verbose=verbose)
                     ct = datetime.datetime.now() - start
 
                     W_est = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
