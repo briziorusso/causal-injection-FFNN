@@ -8,3 +8,4 @@ pyvis
 plotly
 kaleido
 tqdm
+ipykernel

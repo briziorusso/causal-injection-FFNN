@@ -32,59 +32,54 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     ## Run arguments
-    parser.add_argument('--gpu', type = str, default = '')
-    parser.add_argument('--extension', type = str, default = '')    
-    parser.add_argument('--version', default='test')
-    parser.add_argument('--csv')
-    parser.add_argument('--output_log', type = str, default = 'InjectedNet_recon.log')
-    parser.add_argument('--ckpt_file', type = str, default = 'recon.ckpt')
-    parser.add_argument('--force_refit', type=str2bool, nargs='?',
-                        const=True, default=False,
-                        help="Activate nice mode.")
-    parser.add_argument('--overwrite_res', type=str2bool, nargs='?',
-                        const=True, default=False,
-                        help="Activate nice mode.")
+    parser.add_argument('--gpu', help='Name of GPU to use',type = str, type = str, default = '')
+    parser.add_argument('--csv', help='Name of the input csv, if available', type = str )
+    parser.add_argument('--version', help='Tags all results',type = str, default='test')
+    parser.add_argument('--output_log', help='Name of the .log file', type = str, default = 'test.log')
+    parser.add_argument('--ckpt_file', help='Name of the .ckpt file', type = str, default = 'test.ckpt')
+    parser.add_argument('--force_refit', help='Overwrite models in ckpt_file location', type=str2bool, nargs='?',const=True, default=False)    
+    parser.add_argument('--overwrite_res', help='Overwrite summary results in results location', type=str2bool, nargs='?',const=True, default=False)    
+
     ## Data and model
-    parser.add_argument("--random_dag", type=str2bool, nargs='?',
-                        const=True, default=True,
-                        help="Activate nice mode.")
-    parser.add_argument('--num_nodes', type = int, default = 10) #20
-    parser.add_argument('--branchf', type = float, default = 2) #4
-    parser.add_argument('--known_p', type = float, default = 0.2) #0.2
-    parser.add_argument('--noise_p', type = float, default = 0.0) #0.2
-    parser.add_argument('--dataset_sz', type = int, default = 5000)
-    parser.add_argument('--hidden_l', type = int, default = 1) #20
-    parser.add_argument('--hidden_n_p', type = float, default = 3.2) #20
-    parser.add_argument('--reg_lambda', type = float, default = 1)
-    parser.add_argument('--reg_beta', type = float, default = 5)
+    parser.add_argument("--random_dag", help='Bool, if True DAG is generated', type=str2bool, nargs='?',const=True, default=True)
+    parser.add_argument('--num_nodes', help='Number of nodes |V| in synthetic DAG ', type = int, default = 20)
+    parser.add_argument('--branchf', help='Proportion of edges over nodes in synthetic DAG e=|E|/|V|', type = float, default = 4)
+    parser.add_argument('--noise_p', help='Proportion of noise variables (over |V|) to add to the data', type = float, default = 0.2)
+    parser.add_argument('--known_p', help='Proportion of edges |E|) known in synthetic DAG', type = float, default = 0.2)
+    parser.add_argument('--dataset_sz', help='Sample size |N|', type = int, default = 5000)
+    parser.add_argument("--dataset_szs", help='Comma delimited list of sample sizes N', type=str, default='100000')
+    parser.add_argument('--hidden_l', help='Number of hidden layers', type = int, default = 1) 
+    parser.add_argument('--hidden_n_p', help='Multiplier (to |V|) for number of hidden neurons', type = float, default = 3.2) 
+    parser.add_argument('--reg_lambda', help='Coefficient for R_DAG loss component', type = float, default = 1)
+    parser.add_argument('--reg_beta', help='Coefficient for L1 component of R_DAG loss', type = float, default = 5)
+    parser.add_argument('--lr', help='Learning Rate', type=float, default = 0.001)
 
     ## Experiment strategy
-    parser.add_argument('--out_folds', type = int, default = 1)
-    parser.add_argument('--in_folds', type = int, default = 1)
+    parser.add_argument('--seed', help='Seed to reproduce', type = int, default = 0)
+    parser.add_argument('--out_folds', help='Number of outer folds in outer folds in nested xval', type = int, default = 1)
+    parser.add_argument('--in_folds', help='Number of inner folds in outer folds in nested xval', type = int, default = 1)
+    parser.add_argument("--thetas", help='Comma delimited list of thetas (taus), leave empty for autobinning of adjmat range', type=str, default='')
+    parser.add_argument("--theta_range", help='Comma delimited list. Provide min, max, step of thetas (taus)', type=str, default='')
+    parser.add_argument("--theta_auto", help='Bool, if True DAG theta interval is created linearly', type=str2bool, nargs='?',const=True, default=True)
+    parser.add_argument("--verbose", help='Bool, if True prints debugging info', type=str2bool, nargs='?',const=True, default=False)
 
     args = parser.parse_args()
     signal(SIGINT, handler)
     
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
-    # if args.gpu == '':
-    #     args.gpu = '/CPU:0'
-
-    # with tf.device(args.gpu):
-
-    runs_list_theta = check_run_status(args.version)
-
     folder = "./results/"
     if not os.path.exists(folder):
         os.mkdir(folder)    
-        
     args.output_log = os.path.join("./logs/", args.version, args.output_log)
     if not os.path.exists(os.path.join("./logs/", args.version)):
         os.mkdir(os.path.join("./logs/", args.version))
 
+    ### Create list of results for the given version
+    runs_list_theta = check_run_status(args.version)
     # args.csv = 'synth_nonlinear.csv' ## toy
     DAG_inject = 'partial' ## One of 'full', 'toy', 'partial'
-    verbose = False
+    verbose = args.verbose
     standardise = True
 
     thetas = [-1, 0.05]
@@ -92,6 +87,7 @@ if __name__ == '__main__':
     nodes_list = [10,20,50]
     alphas = [50, 100, 200, 300, 500]
 
+    ### Loop over seeds
     pbar = tqdm(seeds_list, leave=None)
     for seed in pbar:
         pbar.set_description("Seed %s" % seed)
@@ -99,6 +95,7 @@ if __name__ == '__main__':
 
         random_stability(seed)
 
+    ### Loop over number of nodes
         pbar2 = tqdm(nodes_list, leave=None)
         for num_nodes in pbar2:
             pbar2.set_description("Nodes %s" % num_nodes)
@@ -117,6 +114,8 @@ if __name__ == '__main__':
             G, df = load_or_gen_data(name=dag_type, num_nodes=num_nodes, branchf=args.branchf, csv=args.csv)
 
             pbar3 = tqdm(dataset_szs, leave=None)
+
+    ### Loop over dataset size
             for dset_sz in pbar3:
                 random_stability(seed)
                 alpha = dset_sz*0.8/num_nodes
@@ -143,11 +142,13 @@ if __name__ == '__main__':
                 else:
                     result_metrics_dict = {}
 
+    ### Loop over outer folds in nested xval
                 for train_idx, val_idx in  kf_out_splits:
                     out_fold += 1
                     X_DAG = df.loc[train_idx]
                     X_DAG = X_DAG.iloc[:dset_sz]
 
+                    ### Data pre-processing
                     if standardise:
                         scaler = StandardScaler()
                         if args.random_dag:
@@ -183,7 +184,7 @@ if __name__ == '__main__':
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                         w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
                         net.fit(X=X_DAG, y=y_DAG, num_nodes=X_DAG.shape[1], X_val=X_test, y_val=y_test,
-                                overwrite=False, inject=False, injected=False, verbose=verbose)
+                                overwrite=args.force_refit, inject=False, injected=False, verbose=verbose)
 
                         ## Evaluate baseline
                         out_file_mat = os.path.join(folder,f"adjmats/baselines/W_est.{seed}.{out_fold}.{num_nodes}.{args.branchf}.{dset_sz}.{args.noise_p}.{args.hidden_l}.{args.hidden_n_p}.pkl")
@@ -218,6 +219,7 @@ if __name__ == '__main__':
                     elif DAG_inject not in ['toy','random']:
                         loaded_adj = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
                     
+                    ## Split data (again) depending on number of inner folds
                     if args.in_folds >= 2:
                         kf = KFold(n_splits = args.in_folds, random_state = seed, shuffle = True)
                         kf_splits = kf.split(X_DAG)
@@ -229,6 +231,7 @@ if __name__ == '__main__':
                         kf_splits = kf_out_splits
                                     
                     REG_net = []
+    ### Loop over thetas
                     for theta in tqdm(thetas, desc="thetas", leave=None):
                         fold = 0
 
@@ -237,6 +240,7 @@ if __name__ == '__main__':
                         if current_run_code in runs_list_theta and args.overwrite_res==False:
                             continue
 
+    ### Loop over inner folds in nested xval
                         for train_idx, val_idx in kf_splits:
                             if net:
                                 net.__del__()
@@ -261,6 +265,7 @@ if __name__ == '__main__':
                                                         "_hl" + str(args.hidden_l) + "_hn" + str(args.hidden_n_p)
                                                         )
 
+                            ## Fit Network, with or without injection
                             start = datetime.datetime.now()
                             if theta >= 0:
                                 net = InjectedNet(num_inputs = X_train.shape[1], n_hidden=hidden_n, hidden_layers=hidden_l,
@@ -279,6 +284,7 @@ if __name__ == '__main__':
                             W_est = net.pred_W(X_DAG, np.expand_dims(X_DAG[:,0], -1))
                             save_pickle(W_est, os.path.join(folder, f"adjmats/W_est.{num_nodes}.{seed}.{dset_sz}.{out_fold}.{fold}.{str(theta)}.{args.version}.pkl"), verbose=False)
 
+                            ## Log Results
                             REG_net.append(mean_squared_error(net.pred(X_test), y_test))
                             if verbose:
                                 print("MSE = ", mean_squared_error(net.pred(X_test), y_test))
@@ -294,6 +300,11 @@ if __name__ == '__main__':
                             score["data_size"] = dset_sz
                             score["seed"] = seed
 
+                            ######################################
+                            ############ Evaluation ##############
+                            ######################################
+
+                            ## Predictive Performance
                             score["MSE"] = mean_squared_error(net.pred(X_test), y_test)
                             score["MAE"] = mean_absolute_error(net.pred(X_test), y_test)
                             score["Test_size"] = X_test.shape
@@ -307,6 +318,7 @@ if __name__ == '__main__':
                                     score[f"MSE_std_{std_val}"] = NaN
                                 score[f"Test_size_{std_val}"] = X_test_sub.shape[0]
 
+                            ## Reconstruction Accuracy
                             tau_list = list(np.arange(min(W_est.flatten()), max(W_est.flatten()), 0.005))
                             scores = []
                             all_taus = []
@@ -388,6 +400,7 @@ if __name__ == '__main__':
                 
                             save_pickle(result_metrics_dict, out_file, verbose=False)
 
+                        ## Log Results
                         def format_str(mean, std):
                             return "${0:.6f}".format(round(mean,6)) + " ({0:.6f})$ ".format(round(std,6))
                         with open(args.output_log, "a") as logfile:
