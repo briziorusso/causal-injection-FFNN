@@ -1,6 +1,5 @@
 ## Some of the code is taken from https://github.com/vanderschaarlab/mlforhealthlabpub/blob/main/alg/castle/CASTLE.py 
-## Here the CASTLE class has been extended (and renamed to InjectedNet) 
-## to perform causal discovery and injection for feed forward neural networks
+## Here we define InjectedNet class to perform causal discovery and injection for feed forward neural networks
 ## beyond the regularization performed by CASTLE. The code is implemented in Tensorflow 1.15
 
 import os

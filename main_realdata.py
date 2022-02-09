@@ -172,10 +172,7 @@ if __name__ == '__main__':
                     lr = 0.0001
                     b_size = 32
             elif any(i in version for i in ['cali']):
-                if dset_sz <= 200:
-                    lr = 0.0001
-                    b_size = 32
-                elif dset_sz <= 500:
+                if dset_sz <= 500:
                     lr = 0.0012
                     b_size = 32
                 else:
@@ -327,14 +324,14 @@ if __name__ == '__main__':
                     start = datetime.datetime.now()
                     if theta >= 0:
                         net.__del__()
-                        net = InjectedNet(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
+                        net = InjectedNet(num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,  type_output=problem_type, 
                                         lr=lr, batch_size=b_size, w_threshold = theta, ckpt_file = ckpt_file, 
                                         inject = True, adj_mat=loaded_adj)
                         net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
-                                overwrite=force_refit, injected=False, inject=True, maxed_adj=loaded_adj, verbose=verbose)
+                                overwrite=force_refit, injected=False, inject=True, verbose=verbose)
                     else:
-                        net = InjectedNet(num_train = X_train.shape[0], num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
+                        net = InjectedNet(num_inputs = X_train.shape[1], n_hidden=int(X_train.shape[1]*3.2), 
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta, seed = seed,  type_output=problem_type, 
                                         lr=lr, batch_size=b_size, w_threshold = theta, ckpt_file = args.ckpt_file)
                         net.fit(X=X_train, y=y_train, num_nodes=X_train.shape[1], X_val=X_val, y_val=y_val,
