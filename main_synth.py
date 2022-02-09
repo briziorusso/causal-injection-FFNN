@@ -183,7 +183,7 @@ if __name__ == '__main__':
                                         reg_lambda = args.reg_lambda, reg_beta = args.reg_beta,
                                         w_threshold = 0, ckpt_file = ckpt_file, seed = seed)
                         net.fit(X=X_DAG, y=y_DAG, num_nodes=X_DAG.shape[1], X_val=X_test, y_val=y_test,
-                                overwrite=False, inject=False, injected=False, verbose=verbose)
+                                overwrite=args.force_refit, inject=False, injected=False, verbose=verbose)
 
                         ## Evaluate baseline
                         out_file_mat = os.path.join(folder,f"adjmats/baselines/W_est.{seed}.{out_fold}.{num_nodes}.{args.branchf}.{dset_sz}.{args.noise_p}.{args.hidden_l}.{args.hidden_n_p}.pkl")
