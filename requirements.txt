@@ -9,3 +9,4 @@ plotly
 kaleido
 tqdm
 ipykernel
+nbformat
