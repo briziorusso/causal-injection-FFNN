@@ -32,7 +32,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     ## Run arguments
-    parser.add_argument('--gpu', help='Name of GPU to use',type = str, type = str, default = '')
+    parser.add_argument('--gpu', help='Name of GPU to use',type = str, default = '')
     parser.add_argument('--csv', help='Name of the input csv, if available', type = str )
     parser.add_argument('--version', help='Tags all results',type = str, default='test')
     parser.add_argument('--output_log', help='Name of the .log file', type = str, default = 'test.log')
@@ -65,6 +65,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     signal(SIGINT, handler)
     
+    ### Setup additional internal variables
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     verbose = args.verbose
@@ -128,9 +129,6 @@ if __name__ == '__main__':
         for train_idx, val_idx in  pbar2:
             out_fold += 1
 
-            # if out_fold <=1: ###################################################################################################
-            #     continue
-
             pbar2.set_description("out_fold %s" % out_fold)
             pbar2.refresh()
 
@@ -179,7 +177,7 @@ if __name__ == '__main__':
                     b_size = 32
             elif any(i in version for i in ['fico']):
                 if dset_sz <= 200:
-                    lr = 0.112
+                    lr = 0.075
                     b_size = 32
                 elif dset_sz <= 500:
                     lr = 0.005
@@ -268,9 +266,6 @@ if __name__ == '__main__':
                 # print(n_t, theta)
                 pbar3.set_description("theta %s" % theta)
                 pbar3.refresh()
-
-                # if theta in [-1,0,0.08,0.12,0.16,0.2] and out_fold==1: ############################################################################################
-                #     continue
 
                 total_edg = sum((loaded_adj).flatten()>theta)
                 ## Make sure there are edges
