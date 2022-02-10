@@ -32,7 +32,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     ## Run arguments
-    parser.add_argument('--gpu', help='Name of GPU to use',type = str, type = str, default = '')
+    parser.add_argument('--gpu', help='Name of GPU to use',type = str, default = '')
     parser.add_argument('--csv', help='Name of the input csv, if available', type = str )
     parser.add_argument('--version', help='Tags all results',type = str, default='test')
     parser.add_argument('--output_log', help='Name of the .log file', type = str, default = 'test.log')
