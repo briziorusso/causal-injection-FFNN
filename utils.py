@@ -553,7 +553,9 @@ def plot_DAG(mat, graphic_type, debug=False, ori_dag=None, names=None,
 
 def plot_ly_lines(
     agg_stats,
-    metric
+    metric,
+    width=600,
+    height=250
 ):
 
     # Create figure with secondary y-axis
@@ -596,7 +598,7 @@ def plot_ly_lines(
             'yanchor': 'bottom'},
         template='plotly_white',
         autosize=True,
-        width=600, height=250, 
+        width=width, height=height, 
         margin=dict(
             l=10,
             r=10,
