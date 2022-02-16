@@ -172,7 +172,7 @@ def swap_nodes(G, a, b):
     newG = nx.relabel_nodes(newG, {b : a})
     return nx.relabel_nodes(newG, {'temp' : b})
 
-def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose = False, seed=0):
+def load_or_gen_data(name, csv = None, N=100000, num_nodes = None, branchf = None, verbose = False, seed=0):
     global G
     random_stability(seed)
     if name == 'toy':
@@ -197,10 +197,10 @@ def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose
 
         if csv != None:
             df = pd.read_csv(csv)
+            df = df.iloc[:N]
             # df_test = df.iloc[-1000:]
-            # df = df.iloc[:dset_sz]
         else: 
-            df = gen_data_nonlinear(G, SIZE = 100000, seed=seed)
+            df = gen_data_nonlinear(G, SIZE = N, seed=seed)
 
     elif name == 'random':
         #Random DAG
@@ -209,7 +209,7 @@ def load_or_gen_data(name, csv = None, num_nodes = None, branchf = None, verbose
 
         noise = random.uniform(0.3, 1.0)
 
-        df = gen_data_nonlinear(G, SIZE = 100000, var = noise, seed=seed)
+        df = gen_data_nonlinear(G, SIZE = N, var = noise, seed=seed)
         
         for i in range(len(G.edges())):
             if len(list(G.predecessors(i))) > 0:
