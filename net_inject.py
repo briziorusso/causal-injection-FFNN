@@ -131,7 +131,7 @@ class InjectedNet(object):
         for i in range(self.num_inputs):
             
             if inject and adj_mat is not None:
-            # Causal injection adds all non causal entres in adj_mat to the mask
+            # Causal injection adds all non causal entries in adj_mat to the mask
                 if i==0 and verbose:
                     print("Masking non causal dependencies")
                 if tf.is_tensor(adj_mat):
@@ -234,7 +234,7 @@ class InjectedNet(object):
 
         self.h = dag_l - tf.cast(d, tf.float32)
 
-        ## V_W group lasso??
+        ## V_W group lasso
         L1_loss = 0.0
         L1_alpha = 0.5
         for i in range(self.num_inputs): 
@@ -391,11 +391,13 @@ class InjectedNet(object):
 
         file_path = self.tmp + ".data-00000-of-00001"
 
+        ## Loading base model
         if os.path.exists(file_path) and not overwrite and not inject and not injected:
             self.saver.restore(self.sess, self.tmp)
             if verbose:
                 print("Model Loaded from ", self.tmp)
 
+        ## Loading injected model
         elif os.path.exists(file_path) and injected:
             self.tmp = self.tmp + "_injected"
 
@@ -408,6 +410,7 @@ class InjectedNet(object):
             else:
                 print("No injected model found. Set injected==False and inject==True")
 
+        ## Inject starting from fitted model
         elif os.path.exists(file_path) and inject:
             self.saver.restore(self.sess, self.tmp)
             if verbose:
@@ -423,6 +426,7 @@ class InjectedNet(object):
 
             self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=verbose)
 
+        ## Fit CASTLE or Inject from scratch
         else:
             self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=verbose)
 
