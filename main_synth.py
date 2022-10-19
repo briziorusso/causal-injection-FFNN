@@ -75,10 +75,6 @@ if __name__ == '__main__':
     args.output_log = os.path.join("./logs/", args.version, args.output_log)
     if not os.path.exists(os.path.join("./logs/", args.version)):
         os.mkdir(os.path.join("./logs/", args.version))
-    if not os.path.exists(os.path.join("./models/")):
-        os.mkdir(os.path.join("./models/"))
-    if len(args.ckpt_file.split("/")) > 1 and not os.path.exists(os.path.join("./models/common_seed_size", args.ckpt_file.split("/")[0])):
-        os.mkdir(os.path.join("./models/common_seed_size", args.ckpt_file.split("/")[0]))
 
     verbose = args.verbose
     DAG_inject = 'partial' ## One of 'full', 'toy', 'partial'
@@ -129,7 +125,7 @@ if __name__ == '__main__':
 
                 ## Check if the run is already in store
                 current_run_code = str(seed)+str(num_nodes)+str(int(alpha))
-                if all([i in runs_list_theta for i in [current_run_code+"-1.0",current_run_code+"0.05"]]) and not args.overwrite_res:
+                if all([i in runs_list_theta for i in [current_run_code+"-1.0",current_run_code+"0.05"]]) and args.overwrite_res==False:
                     continue
 
                 if args.out_folds >= 2:
@@ -174,7 +170,7 @@ if __name__ == '__main__':
                     y_test = df_test[:,0]
 
                     net = None
-                    if current_run_code+"0.05" not in runs_list_theta or args.overwrite_res:
+                    if current_run_code+"0.05" not in runs_list_theta:
 
                         ## Do not refit existing model for baseline castle if seed, folds and model structure is the same
                         ckpt_file = os.path.join("./models/common_seed_size", args.ckpt_file + 
@@ -241,7 +237,7 @@ if __name__ == '__main__':
 
                         ## Check if the run is already in store
                         current_run_code = str(seed)+str(num_nodes)+str(int(alpha))+str(theta)
-                        if current_run_code in runs_list_theta and not args.overwrite_res:
+                        if current_run_code in runs_list_theta and args.overwrite_res==False:
                             continue
 
     ### Loop over inner folds in nested xval

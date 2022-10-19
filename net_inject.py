@@ -1,6 +1,5 @@
 ## Some of the code is taken from https://github.com/vanderschaarlab/mlforhealthlabpub/blob/main/alg/castle/CASTLE.py 
 ## Here we define InjectedNet class to perform causal discovery and injection for feed forward neural networks
-## beyond the regularization performed by CASTLE. The code is implemented in Tensorflow 1.15
 
 import os
 import random
@@ -97,7 +96,6 @@ class InjectedNet(object):
             self.biases['b_h0_'+str(i)] = tf.Variable(tf.random_normal([self.n_hidden], seed = seed)*0.01)
             self.biases['out_'+str(i)] = tf.Variable(tf.random_normal([self.num_outputs], seed = seed))
 
-
         # The hidden layers are shared
         self.weights.update({'w_h1': tf.Variable(tf.random_normal([self.n_hidden, self.n_hidden], seed = seed))})
         self.biases.update({'b_h1': tf.Variable(tf.random_normal([self.n_hidden], seed = seed))})
@@ -131,7 +129,7 @@ class InjectedNet(object):
         for i in range(self.num_inputs):
             
             if inject and adj_mat is not None:
-            # Causal injection adds all non causal entries in adj_mat to the mask
+            # Causal injection adds all 0 elements of adj_mat to the mask
                 if i==0 and verbose:
                     print("Masking non causal dependencies")
                 if tf.is_tensor(adj_mat):
@@ -213,7 +211,7 @@ class InjectedNet(object):
         self.W_0 = []
         for i in range(self.num_inputs):
             self.W_0.append(tf.math.sqrt(tf.reduce_sum(tf.square(self.weights['w_h0_' + str(i)]), axis=1, keepdims=True)))
-        # output weights are the square root of the sum of the first layer weights across the different sub networks.
+        # output adj_mat W is formed by the square root of the sum of the first layer weights across the different sub networks.
 
         self.W = tf.concat(self.W_0, axis=1)
 
@@ -238,11 +236,8 @@ class InjectedNet(object):
         L1_loss = 0.0
         L1_alpha = 0.5
         for i in range(self.num_inputs): 
-            # print('weigths',self.weights['w_h0_'+str(i)])
             w_1 = tf.slice(self.weights['w_h0_' + str(i)], [0, 0], [i, -1])
-            # print('w_1',w_1)
             w_2 = tf.slice(self.weights['w_h0_' + str(i)], [i + 1, 0], [-1, -1])
-            # print('w_2',w_2)
 
             if inject and adj_mat is not None:
 
@@ -259,9 +254,6 @@ class InjectedNet(object):
                 w_2 = tf.gather(w_2,tf.cast(w_2_mask, dtype='int32'))
 
             L1_loss += tf.reduce_sum(tf.norm(w_1, axis=1)) + tf.reduce_sum(tf.norm(w_2, axis=1))
-            ## Equivalent to:
-            # L1_loss += L1_alpha*(tf.math.sqrt(tf.cast(w_1.shape[0], tf.float32))*tf.reduce_sum(tf.norm(w_1, ord=2 ))+tf.math.sqrt(tf.cast(w_2.shape[0], tf.float32))*tf.reduce_sum(tf.norm(w_2, ord=2 ))) + (1-L1_alpha)*(tf.reduce_sum(tf.norm(w_1, ord=1 ))+tf.reduce_sum(tf.norm(w_2, ord=1 )))
-            # print('L1_loss',L1_loss)
 
         # Residuals
         self.R = self.X - self.Out
@@ -272,14 +264,10 @@ class InjectedNet(object):
         
         #Combine all the loss
         ## Reconstruction loss
-        self.mse_loss_subset = tf.cast(self.num_inputs, tf.float32) / tf.cast(tf.reduce_sum(
-            self.sample
-        ), tf.float32) * tf.reduce_sum(tf.square(subset_R))
+        self.mse_loss_subset = tf.cast(self.num_inputs, tf.float32) / tf.cast(tf.reduce_sum(self.sample), tf.float32) * tf.reduce_sum(tf.square(subset_R))
 
         ## R_DAG loss = L_W + beta*V_W + R_W
-        self.regularization_loss_subset = self.Lambda * (
-            self.mse_loss_subset + self.reg_beta * L1_loss + 0.5 * self.rho * self.h * self.h + self.alpha * self.h
-        )
+        self.regularization_loss_subset = self.Lambda * (self.mse_loss_subset + self.reg_beta * L1_loss + 0.5 * self.rho * self.h * self.h + self.alpha * self.h)
 
         #Add in supervised loss
         self.regularization_loss_subset += self.Lambda * self.rho * self.supervised_loss
@@ -292,7 +280,6 @@ class InjectedNet(object):
         self.sess = tf.Session()
         if not inject:
             self.sess.run(tf.global_variables_initializer())
-        # self.saver = tf.train.Saver(var_list=tf.global_variables())
         self.saver = tf.train.Saver()
         self.tmp = ckpt_file
 
@@ -391,13 +378,11 @@ class InjectedNet(object):
 
         file_path = self.tmp + ".data-00000-of-00001"
 
-        ## Loading base model
         if os.path.exists(file_path) and not overwrite and not inject and not injected:
             self.saver.restore(self.sess, self.tmp)
             if verbose:
                 print("Model Loaded from ", self.tmp)
 
-        ## Loading injected model
         elif os.path.exists(file_path) and injected:
             self.tmp = self.tmp + "_injected"
 
@@ -410,7 +395,6 @@ class InjectedNet(object):
             else:
                 print("No injected model found. Set injected==False and inject==True")
 
-        ## Inject starting from fitted model
         elif os.path.exists(file_path) and inject:
             self.saver.restore(self.sess, self.tmp)
             if verbose:
@@ -426,7 +410,6 @@ class InjectedNet(object):
 
             self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=verbose)
 
-        ## Fit CASTLE or Inject from scratch
         else:
             self.__fit__(X, y, num_nodes, X_val, y_val, seed = seed, verbose=verbose)
 

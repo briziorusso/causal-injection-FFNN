@@ -1,9 +1,0 @@
-networkx
-pandas
-numpy
-sklearn
-seaborn
-pyvis
-plotly
-kaleido
-tensorflow==1.15

@@ -6,8 +6,6 @@
 
 - `main_realdata.py` reproduces the experiments on real data. The experiments on real data are on FICO HELOC, Adult, Boston and California Housing datasets. The script iterates over two dimensions: the threshold tau (to retrieve computed DAGs) and the sample size N. All the data is downlowded within the `utils.py` script apart from HELOC (this is instead provided in the fico folder within data directory, both [pre-processed](data/fico/WOE_Rud_data.csv) and [original](data/fico/heloc_dataset_v1.csv)). 
 
-In the [Notebooks](Notebooks) folder there are two jupyter notebooks (one for the synthetic data `Main_Synth.ipynb` and one for real data `Main_Real.ipynb`) collecting the results and plotting the charts presented in the paper. Each scenario shown in the notebooks also reports the command used to run it (as per below example).
-
 ### Example usage
 To fit an *injected* network, from python at the root folder, run:
 ```
@@ -38,4 +36,3 @@ python main_synth.py --version="r_ex_1b_k20_l3_h2_n0" --branchf=1 --known_p=0.2 
 
 ### Environment
 The code was tested with Python 3.6.9 and 3.9.9. `requirements.txt` provides the necessary packages. Run `pip install -r requirements.txt` from a terminal at the root folder to install all packages in your virtual environment.
-

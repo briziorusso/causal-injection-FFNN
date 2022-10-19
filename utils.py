@@ -201,7 +201,7 @@ def load_or_gen_data(name, csv = None, N=100000, num_nodes = None, branchf = Non
             # df_test = df.iloc[-1000:]
         else: 
             df = gen_data_nonlinear(G, SIZE = N, seed=seed)
-
+            
     elif name == 'random':
         #Random DAG
         num_edges = int(num_nodes*branchf)
