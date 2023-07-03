@@ -1,5 +1,5 @@
-# Causal Discovery and Injection for Feed-Forward Neural Networks
- This repository provides the code for the paper on Causal Discovery and Injection. There are three main python scripts:
+# Causal Discovery and Knowledge Injection for Contestable Neural Networks
+ This repository provides the code for the paper on Contestable Neural Networks. There are three main python scripts:
 - `net_inject.py` defines the InjectedNet class: this is used to apply the causal masking to the weights of the input layer of the neural network, enforcing the use of *only* the direct causal relationships provided in the input DAG/graph.
 
 - `main_synth.py` reproduces the experiments on synthetic data. The script iterates over the three main dimensions varying for the generated DAGs: number  of nodes in DAG (|V| in {10, 20, 50}), number of edges (|E| = |V| x e, where e in {1,2,5}), and data size (N=|V| x s, where s in {50,100,200,300,500}). 
